@@ -1,0 +1,39 @@
+.header {
+  position: absolute;
+  top: 45px;
+  left: 0;
+  width: 390px;
+  height: 70px;
+  z-index: 2;
+}
+
+.header-location {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 115px;
+  height: 33px;
+  border-radius: 827px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #354041;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.header-bell {
+  position: absolute;
+  top: 17px;
+  left: 301px;
+}
+
+.header-settings {
+  position: absolute;
+  top: 22px;
+  left: 346px;
+}
