@@ -1,11 +1,13 @@
-import './Button.css'
+import styled from 'styled-components'
 
-function Button({ children, className = '' }) {
-  return (
-    <button type="button" className={`button ${className}`.trim()} tabIndex={-1}>
-      {children}
-    </button>
-  )
-}
+const Button = styled.button`
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  pointer-events: none;
+`
 
 export default Button
