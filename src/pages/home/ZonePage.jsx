@@ -1,15 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import styled, { css } from 'styled-components'
 import backIcon from '../../assets/images/icon-settings-back.svg'
 import ellipseBottom from '../../assets/images/bg-edit-ellipse.svg'
 import ellipseTop from '../../assets/images/bg-settings-ellipse.svg'
 import buildingIcon from '../../assets/images/icon-zone-card.svg'
 import lineIcon from '../../assets/images/icon-settings-line.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
+import { getMyZones, mapMyZones, saveMyZones } from '../../api/settingspage.js'
 
 const buildings = [
   ['대일관', '문예관', '본관'],
@@ -50,22 +46,6 @@ const Ellipse = styled.img`
     top: ${$top};
     left: ${$left};
   `}
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const BackButton = styled.button`
@@ -357,23 +337,36 @@ const SaveButton = styled.button`
   cursor: pointer;
 `
 
-function Status() {
-  return (
-    <StatusBar aria-hidden="true">
-      <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-      <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-      <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-      <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-      <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-    </StatusBar>
-  )
-}
+const ZoneNote = styled.p`
+  margin: 0 16px 12px;
+  color: #c93a24;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
 
 function ZonePage({ zones, onChange, onBack }) {
   const [mode, setMode] = useState('view')
   const [draft, setDraft] = useState(zones)
   const [building, setBuilding] = useState(null)
   const [floors, setFloors] = useState([])
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    getMyZones()
+      .then((payload) => {
+        if (!cancelled) onChange(mapMyZones(payload.data))
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError.message || '담당 구역을 불러오지 못했습니다.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [onChange])
 
   function openEdit() {
     setDraft(zones.map((zone) => ({ ...zone, floors: [...zone.floors] })))
@@ -392,7 +385,19 @@ function ZonePage({ zones, onChange, onBack }) {
     )
   }
 
-  function saveNewZone() {
+  async function persistZones(next) {
+    setError('')
+    try {
+      const payload = await saveMyZones(next)
+      onChange(mapMyZones(payload.data))
+      return true
+    } catch (saveError) {
+      setError(saveError.message || '담당 구역을 저장하지 못했습니다.')
+      return false
+    }
+  }
+
+  async function saveNewZone() {
     if (building !== '북악관' && floors.length === 0) return
     const exists = zones.some((zone) => zone.building === '북악관')
     const next = exists
@@ -401,8 +406,9 @@ function ZonePage({ zones, onChange, onBack }) {
             ? { ...zone, floors: sortFloors([...new Set([...zone.floors, ...floors])]) }
             : zone,
         )
-      : [...zones, { building: '북악관', floors: sortFloors(floors) }]
-    onChange(next)
+      : [...zones, { building: '북악관', buildingId: 1, floors: sortFloors(floors) }]
+    const saved = await persistZones(next)
+    if (!saved) return
     setBuilding(null)
     setFloors([])
     setMode('view')
@@ -415,7 +421,6 @@ function ZonePage({ zones, onChange, onBack }) {
       <Screen>
         <Ellipse src={ellipseBottom} alt="" width="875" height="875" $top="410px" $left="-252px" />
         <Ellipse src={ellipseTop} alt="" width="875" height="875" $top="-326px" $left="-35px" />
-        <Status />
         <BackButton
           type="button"
           aria-label={mode === 'view' ? '설정으로 돌아가기' : '내 담당 구역으로 돌아가기'}
@@ -435,9 +440,9 @@ function ZonePage({ zones, onChange, onBack }) {
         {mode === 'edit' && (
           <HeaderAction
             type="button"
-            onClick={() => {
-              onChange(draft)
-              setMode('view')
+            onClick={async () => {
+              const saved = await persistZones(draft)
+              if (saved) setMode('view')
             }}
           >
             완료
@@ -445,6 +450,7 @@ function ZonePage({ zones, onChange, onBack }) {
         )}
 
         <Main>
+          {error ? <ZoneNote>{error}</ZoneNote> : null}
           {mode !== 'add' &&
             shown.map((zone) => (
               <ZoneCard key={zone.building}>

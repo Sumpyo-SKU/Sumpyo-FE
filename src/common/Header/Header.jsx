@@ -71,7 +71,24 @@ const SettingsButton = styled.button`
   pointer-events: auto;
 `
 
-function Header({ room = '북악관 · 617호', pickerOpen = false, onRoomClick, onBellClick, onSettingsClick }) {
+const UnreadBadge = styled.span`
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #e5585d;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+`
+
+function Header({ room = '강의실 선택', pickerOpen = false, unreadCount = 0, onRoomClick, onBellClick, onSettingsClick }) {
+  const badge = unreadCount > 99 ? '99+' : String(unreadCount)
+
   return (
     <HeaderBar $pickerOpen={pickerOpen}>
       <LocationButton
@@ -84,8 +101,9 @@ function Header({ room = '북악관 · 617호', pickerOpen = false, onRoomClick,
         <span>{room}</span>
         <img src={chevronIcon} alt="" width="13" height="13" />
       </LocationButton>
-      <BellButton type="button" aria-label="환기 알림" onClick={onBellClick}>
+      <BellButton type="button" aria-label={unreadCount > 0 ? `환기 알림 ${badge}개` : '환기 알림'} onClick={onBellClick}>
         <img src={bellIcon} alt="" width="30" height="32" />
+        {unreadCount > 0 ? <UnreadBadge>{badge}</UnreadBadge> : null}
       </BellButton>
       {onSettingsClick ? (
         <SettingsButton type="button" aria-label="설정" onClick={onSettingsClick}>

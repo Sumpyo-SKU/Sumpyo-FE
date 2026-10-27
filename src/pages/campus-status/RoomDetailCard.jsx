@@ -147,16 +147,30 @@ const ActionButton = styled.button`
           background: #56a6f0;
           color: #ffffff;
           font-weight: 700;
+          pointer-events: auto;
+          cursor: pointer;
+
+          &:disabled {
+            cursor: default;
+            opacity: 0.7;
+          }
         `
       : `
           width: 122px;
           background: #f4f5fa;
           color: #161a2b;
           font-weight: 600;
+          pointer-events: auto;
+          cursor: pointer;
+
+          &:disabled {
+            cursor: default;
+            opacity: 0.7;
+          }
         `}
 `
 
-function RoomDetailCard({ room, onOpenDetail }) {
+function RoomDetailCard({ room, onOpenDetail, onCheck, onStart, checking, starting, inProgress, actionError }) {
   return (
     <Card aria-label={`${room.name} 현황`}>
       <RoomName>{room.name}</RoomName>
@@ -178,13 +192,17 @@ function RoomDetailCard({ room, onOpenDetail }) {
           <MetricValue>{room.humidity}</MetricValue>
         </Metric>
       </Metrics>
-      <Status $color={room.status.color}>
-        <StatusDot $color={room.status.dot} />
-        {room.status.label}
+      <Status $color={actionError ? '#c93a24' : room.status.color}>
+        {actionError || !room.status.dot ? null : <StatusDot $color={room.status.dot} />}
+        {actionError || room.status.label}
       </Status>
       <Actions>
-        <ActionButton type="button">확인</ActionButton>
-        <ActionButton type="button" $primary>환기 하기</ActionButton>
+        <ActionButton type="button" disabled={checking || starting} aria-busy={checking} onClick={onCheck}>
+          확인
+        </ActionButton>
+        <ActionButton type="button" $primary disabled={checking || starting || inProgress} aria-busy={starting} onClick={onStart}>
+          {inProgress ? '환기 진행중' : '환기 하기'}
+        </ActionButton>
       </Actions>
     </Card>
   )

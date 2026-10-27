@@ -1,27 +1,92 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import styled from 'styled-components'
 import Home from './pages/home/Home.jsx'
 import CampusStatus from './pages/campus-status/CampusStatus.jsx'
 import Inbox from './pages/inbox/Inbox.jsx'
 import CampusTalk from './pages/campus-talk/CampusTalk.jsx'
 import Onboarding from './pages/onboarding/Onboarding.jsx'
+import StudentComplaint from './pages/complaint/StudentComplaint.jsx'
+import { getMyZones, mapMyZones, saveMyZones } from './api/settingspage.js'
 
-// 테스트 중에는 완료 여부를 저장하지 않는다. 새로고침하면 온보딩부터 다시 나온다.
-localStorage.removeItem('sumpyo-onboarded')
+function readComplaintCode() {
+  const url = new URL(window.location.href)
+  const path = url.pathname.replace(/\/$/, '') || '/'
+  if (path !== '/complaint') return null
+  return url.searchParams.get('code') || ''
+}
+
+const Gate = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100dvh;
+  padding: 24px;
+  background: #ebf3ff;
+  color: #2f3e4e;
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+`
 
 function App() {
+  const complaintCode = readComplaintCode()
   const [page, setPage] = useState('home')
-  const [onboarded, setOnboarded] = useState(false)
   const [zones, setZones] = useState([])
+  const [zoneState, setZoneState] = useState('loading')
+  const [zoneError, setZoneError] = useState('')
 
-  if (!onboarded) {
+  useEffect(() => {
+    let cancelled = false
+
+    getMyZones()
+      .then((payload) => {
+        if (cancelled) return
+        const next = mapMyZones(payload.data)
+        setZones(next)
+        setZoneState(next.length ? 'ready' : 'onboarding')
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setZoneError(error.message || '담당 구역을 불러오지 못했습니다.')
+        setZoneState('error')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (complaintCode !== null) {
+    return <StudentComplaint code={complaintCode} />
+  }
+
+  if (zoneState === 'loading') {
+    return <Gate>담당 구역을 확인하고 있어요</Gate>
+  }
+
+  if (zoneState === 'error') {
+    return <Gate>{zoneError}</Gate>
+  }
+
+  if (zoneState === 'onboarding') {
     return (
       <Onboarding
-        onDone={(zone) => {
+        onDone={async (zone) => {
           const floors = Array.isArray(zone?.floors) ? zone.floors : []
           if (zone?.building === '북악관' || floors.length > 0) {
-            setZones([{ building: '북악관', floors: [...floors].sort((left, right) => left - right) }])
+            try {
+              const payload = await saveMyZones([{ building: '북악관', buildingId: 1, floors }])
+              setZones(mapMyZones(payload.data))
+            } catch (error) {
+              setZoneError(error.message || '담당 구역을 저장하지 못했습니다.')
+              setZoneState('error')
+              return
+            }
           }
-          setOnboarded(true)
+          setZoneState('ready')
         }}
       />
     )

@@ -9,11 +9,6 @@ import bubbleImage from '../../assets/images/onboarding-bubble.png'
 import runImage from '../../assets/images/onboarding-run.png'
 import pinIcon from '../../assets/images/onboarding-pin.svg'
 import checkIcon from '../../assets/images/onboarding-check.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const buildings = [
   ['대일관', '문예관', '본관'],
@@ -60,22 +55,6 @@ const Ellipse = styled.img`
   left: ${({ $left }) => $left};
   z-index: 0;
   pointer-events: none;
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const Logo = styled.img`
@@ -510,18 +489,6 @@ const Footnote = styled.p`
   text-align: center;
 `
 
-function Status() {
-  return (
-    <StatusBar aria-hidden="true">
-      <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-      <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-      <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-      <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-      <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-    </StatusBar>
-  )
-}
-
 function Backdrop() {
   return (
     <>
@@ -648,7 +615,6 @@ function Onboarding({ onDone }) {
     <PageRoot>
       <Screen>
         <Backdrop />
-        <Status />
         {step === 'flash' && (
           <>
             <Logo src={logoImage} alt="숨표" width="162" height="100" />
@@ -673,7 +639,7 @@ function Onboarding({ onDone }) {
           <Main>
             <Title>어디를 맡고 있나요?</Title>
             <Subtitle>맡고있는 곳에 관한 알림만 받아요</Subtitle>
-            <Note>*핵심 기능 검증을 위해 북악관 5·6층에 우선 적용하였습니다.</Note>
+            <Note>*현재 북악관 5·6층에서 주요 기능을 체험하실 수 있습니다</Note>
             <Card>
               <CardTitle>1. 건물을 선택해 주세요.</CardTitle>
               <BuildingGrid>

@@ -1,13 +1,8 @@
-import { useState } from 'react'
-import styled, { css } from 'styled-components'
-import talkDummy from '../../services/talkDummy.js'
+import { useEffect, useState } from 'react'
+import styled from 'styled-components'
+import { getBuildings, getFloorPlan } from '../../api/campus-status.js'
 import ellipse from '../../assets/images/bg-edit-ellipse.svg'
 import backIcon from '../../assets/images/icon-back.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const PageRoot = styled.div`
   display: flex;
@@ -33,22 +28,6 @@ const Ellipse = styled.img`
   left: -252px;
   z-index: 0;
   pointer-events: none;
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const Header = styled.header`
@@ -133,6 +112,14 @@ const Choice = styled.button`
   cursor: pointer;
 `
 
+const Note = styled.p`
+  margin: 12px 16px 0;
+  color: ${({ $muted }) => ($muted ? '#5f6a8f' : '#c93a24')};
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
+
 const SaveButton = styled.button`
   position: absolute;
   right: 27px;
@@ -148,18 +135,85 @@ const SaveButton = styled.button`
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
 `
+
+function lectureRooms(plan) {
+  return (plan?.rooms ?? [])
+    .filter((room) => room.type === 'LECTURE')
+    .sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
+}
 
 function ZoneEdit({ zone, onBack, onSave }) {
   const [floors, setFloors] = useState(zone.floors)
   const [rooms, setRooms] = useState(zone.rooms)
+  const [floorOptions, setFloorOptions] = useState([])
+  const [roomsByFloor, setRoomsByFloor] = useState({})
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const roomsReady = floors.every((floor) => Array.isArray(roomsByFloor[floor]))
 
-  const toggleRoom = (floor, id) => {
+  useEffect(() => {
+    let cancelled = false
+
+    getBuildings()
+      .then((payload) => {
+        if (cancelled) return
+        const building = (payload.data ?? []).find((item) => item.buildingId === zone.buildingId)
+        const maxFloor = building?.maxFloor ?? 0
+        setFloorOptions(Array.from({ length: maxFloor }, (_, index) => index + 1))
+      })
+      .catch((loadError) => {
+        if (cancelled) return
+        setError(loadError.message || '건물 정보를 불러오지 못했습니다.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [zone.buildingId])
+
+  useEffect(() => {
+    let cancelled = false
+    const missing = floors.filter((floor) => !Array.isArray(roomsByFloor[floor]))
+    if (!zone.buildingId || missing.length === 0) return undefined
+
+    Promise.all(missing.map((floor) => (
+      getFloorPlan(zone.buildingId, floor).then((payload) => ({
+        floor,
+        rooms: lectureRooms(payload.data),
+      }))
+    )))
+      .then((lists) => {
+        if (cancelled) return
+        setRoomsByFloor((current) => {
+          const next = { ...current }
+          lists.forEach((item) => {
+            next[item.floor] = item.rooms
+          })
+          return next
+        })
+      })
+      .catch((loadError) => {
+        if (cancelled) return
+        setError(loadError.message || '강의실을 불러오지 못했습니다.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [floors, roomsByFloor, zone.buildingId])
+
+  const toggleRoom = (floor, room) => {
     setRooms((current) => {
-      const exists = current.some((room) => room.floor === floor && room.id === id)
+      const exists = current.some((item) => item.roomId === room.roomId)
       return exists
-        ? current.filter((room) => room.floor !== floor || room.id !== id)
-        : [...current, { floor, id }]
+        ? current.filter((item) => item.roomId !== room.roomId)
+        : [...current, { floor, id: room.number, roomId: room.roomId }]
     })
   }
 
@@ -171,17 +225,21 @@ function ZoneEdit({ zone, onBack, onSave }) {
     if (selected) setRooms((current) => current.filter((room) => room.floor !== floor))
   }
 
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await onSave({ floors, rooms })
+    } catch (saveError) {
+      setError(saveError.message || '연락 볼 구역을 저장하지 못했습니다.')
+      setSaving(false)
+    }
+  }
+
   return (
     <PageRoot>
       <Screen>
         <Ellipse src={ellipse} alt="" width="875" height="875" />
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
         <Header>
           <BackButton type="button" aria-label="캠퍼스톡으로 돌아가기" onClick={onBack}>
             <img src={backIcon} alt="" width="22" height="22" />
@@ -189,9 +247,10 @@ function ZoneEdit({ zone, onBack, onSave }) {
         </Header>
         <Main>
           <Card>
-            <CardTitle>{talkDummy.floorTitle}</CardTitle>
+            <CardTitle>1. 층을 선택해 주세요. (선택)</CardTitle>
+            {floorOptions.length === 0 && !error ? <Note $muted>층을 불러오고 있어요.</Note> : null}
             <FloorGrid>
-              {talkDummy.floors.map((floor) => (
+              {floorOptions.map((floor) => (
                 <Choice
                   key={floor}
                   type="button"
@@ -206,29 +265,34 @@ function ZoneEdit({ zone, onBack, onSave }) {
           </Card>
           {floors.map((floor) => (
             <Card key={floor}>
-              <CardTitle>{talkDummy.roomTitle}</CardTitle>
-              <RoomGrid>
-                {talkDummy.roomsByFloor[floor].map((id) => {
-                  const on = rooms.some((room) => room.floor === floor && room.id === id)
-                  return (
-                    <Choice
-                      key={id}
-                      type="button"
-                      $room
-                      $on={on}
-                      aria-pressed={on}
-                      onClick={() => toggleRoom(floor, id)}
-                    >
-                      {id}
-                    </Choice>
-                  )
-                })}
-              </RoomGrid>
+              <CardTitle>2. 강의실을 선택해 주세요. (선택)</CardTitle>
+              {Array.isArray(roomsByFloor[floor]) ? (
+                <RoomGrid>
+                  {roomsByFloor[floor].map((room) => {
+                    const on = rooms.some((item) => item.roomId === room.roomId)
+                    return (
+                      <Choice
+                        key={room.roomId}
+                        type="button"
+                        $room
+                        $on={on}
+                        aria-pressed={on}
+                        onClick={() => toggleRoom(floor, room)}
+                      >
+                        {room.number}
+                      </Choice>
+                    )
+                  })}
+                </RoomGrid>
+              ) : (
+                <Note $muted>강의실을 불러오고 있어요.</Note>
+              )}
             </Card>
           ))}
+          {error ? <Note>{error}</Note> : null}
         </Main>
-        <SaveButton type="button" onClick={() => onSave({ floors, rooms })}>
-          {talkDummy.save}
+        <SaveButton type="button" disabled={saving || !roomsReady} onClick={save}>
+          저장하기
         </SaveButton>
       </Screen>
     </PageRoot>

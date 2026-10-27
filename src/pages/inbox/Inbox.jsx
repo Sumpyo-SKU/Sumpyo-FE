@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import styled, { css } from 'styled-components'
+import { useEffect, useRef, useState } from 'react'
+import styled from 'styled-components'
 import Footer from '../../common/Footer/Footer.jsx'
 import ComplaintDetail from './ComplaintDetail.jsx'
+import { getComplaints, getRepeatedComplaints } from '../../api/inbox.js'
 import inboxDummy from '../../services/inboxDummy.js'
 import ellipseA from '../../assets/images/bg-inbox-ellipse-a.svg'
 import ellipseB from '../../assets/images/bg-inbox-ellipse-b.svg'
@@ -12,11 +13,6 @@ import searchIcon from '../../assets/images/icon-search.svg'
 import sparkIcon from '../../assets/images/icon-repeat-spark.svg'
 import sparkSmallIcon from '../../assets/images/icon-repeat-spark-2.svg'
 import arrowIcon from '../../assets/images/icon-inbox-arrow.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const badgeTones = {
   received: { background: '#ffe3e3', color: '#fe7e7e' },
@@ -56,22 +52,6 @@ const Ellipse = styled.img`
   left: ${({ $left }) => $left};
   z-index: 0;
   pointer-events: none;
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const Main = styled.main`
@@ -148,9 +128,9 @@ const SearchInput = styled.input`
 `
 
 const Summary = styled.section`
-  height: 163px;
+  min-height: 163px;
   margin: 23px 16px 0;
-  padding: 14px 15px 0 11px;
+  padding: 14px 15px 14px 11px;
   border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.38);
@@ -198,7 +178,7 @@ const Room = styled.p`
 
 const Note = styled.p`
   margin: 5px 0 0 20px;
-  color: rgba(38, 62, 80, 0.6);
+  color: ${({ $error }) => ($error ? '#c93a24' : 'rgba(38, 62, 80, 0.6)')};
   font-size: 9px;
 `
 
@@ -327,17 +307,136 @@ const More = styled.button`
   cursor: ${({ $link }) => ($link ? 'pointer' : 'default')};
 `
 
+const ListNote = styled.p`
+  margin: 0 24px 12px;
+  color: ${({ $muted }) => ($muted ? '#5f6a8f' : '#c93a24')};
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
+
+const complaintStatus = {
+  RECEIVED: { id: 'received', badge: '접수' },
+  IN_PROGRESS: { id: 'progress', badge: '처리 중' },
+  DONE: { id: 'done', badge: '완료' },
+}
+
+const statusQuery = {
+  received: 'RECEIVED',
+  progress: 'IN_PROGRESS',
+  done: 'DONE',
+}
+
+function relativeTime(createdAt) {
+  const diff = Date.now() - new Date(createdAt).getTime()
+  const minutes = Math.max(0, Math.round(diff / 60000))
+  if (!Number.isFinite(minutes) || minutes < 1) return '방금'
+  if (minutes < 60) return `${minutes}분 전`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}시간 전`
+  return `${Math.round(hours / 24)}일 전`
+}
+
+function mapComplaint(item) {
+  const tone = complaintStatus[item.status] ?? { id: 'received', badge: item.status || '' }
+  const categories = (item.categoryLabels ?? []).filter(Boolean).join(' · ')
+  return {
+    id: item.complaintId,
+    complaintId: item.complaintId,
+    status: tone.id,
+    badge: tone.badge,
+    place: categories ? `${item.room ?? ''} · ${categories}` : (item.room ?? ''),
+    body: item.preview ?? '',
+    time: relativeTime(item.createdAt),
+    createdAt: item.createdAt,
+  }
+}
+
 function Inbox({ onNavigate }) {
   const [tab, setTab] = useState('all')
   const [query, setQuery] = useState('')
+  const [keyword, setKeyword] = useState('')
   const [detail, setDetail] = useState(null)
-  const [complaints, setComplaints] = useState(inboxDummy.complaints)
-  const keyword = query.trim()
-  const visibleComplaints = complaints.filter((item) => {
-    const matchesTab = tab === 'all' || item.status === tab
-    const matchesQuery = !keyword || `${item.place} ${item.body}`.includes(keyword)
-    return matchesTab && matchesQuery
-  })
+  const [complaints, setComplaints] = useState([])
+  const [counts, setCounts] = useState({ all: 0, received: 0, inProgress: 0, done: 0 })
+  const [listError, setListError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [repeated, setRepeated] = useState([])
+  const [repeatError, setRepeatError] = useState('')
+  const cursorRef = useRef(null)
+  const hasNextRef = useRef(false)
+  const loadingRef = useRef(false)
+  const requestRef = useRef(0)
+  const tabRef = useRef(tab)
+  const tabs = [
+    { id: 'all', label: `전체 ${counts.all ?? 0}` },
+    { id: 'received', label: `접수 ${counts.received ?? 0}` },
+    { id: 'progress', label: `처리 중 ${counts.inProgress ?? 0}` },
+    { id: 'done', label: `완료 ${counts.done ?? 0}` },
+  ]
+
+  useEffect(() => {
+    const timer = setTimeout(() => setKeyword(query.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  useEffect(() => {
+    let cancelled = false
+    getRepeatedComplaints()
+      .then((payload) => {
+        if (cancelled) return
+        setRepeated(Array.isArray(payload.data) ? payload.data : [])
+        setRepeatError('')
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setRepeated([])
+        setRepeatError(error.message || '반복 민원을 불러오지 못했습니다.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function loadComplaints(cursor, statusTab, search) {
+    if (cursor && loadingRef.current) return
+    const requestId = requestRef.current + 1
+    requestRef.current = requestId
+    loadingRef.current = true
+    setLoading(true)
+    try {
+      const payload = await getComplaints({
+        status: statusQuery[statusTab],
+        q: search,
+        cursor,
+      })
+      if (requestRef.current !== requestId) return
+      const data = payload.data ?? {}
+      const nextItems = (data.content ?? []).map(mapComplaint)
+      setComplaints((current) => (cursor ? [...current, ...nextItems] : nextItems))
+      hasNextRef.current = Boolean(data.hasNext && data.nextCursor)
+      cursorRef.current = data.hasNext ? data.nextCursor : null
+      if (!cursor) setCounts(data.counts ?? { all: 0, received: 0, inProgress: 0, done: 0 })
+      setListError('')
+    } catch (error) {
+      if (requestRef.current !== requestId) return
+      if (!cursor) setComplaints([])
+      setListError(error.message || '민원을 불러오지 못했습니다.')
+    } finally {
+      if (requestRef.current === requestId) {
+        loadingRef.current = false
+        setLoading(false)
+      }
+    }
+  }
+
+  useEffect(() => {
+    tabRef.current = tab
+    cursorRef.current = null
+    hasNextRef.current = false
+    setComplaints([])
+    loadComplaints(undefined, tab, keyword)
+  }, [tab, keyword])
 
   if (detail) {
     return (
@@ -370,15 +469,14 @@ function Inbox({ onNavigate }) {
             $left={ellipse.left}
           />
         ))}
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
 
-        <Main>
+        <Main
+          onScroll={(event) => {
+            const node = event.currentTarget
+            const nearEnd = node.scrollHeight - node.scrollTop - node.clientHeight < 80
+            if (nearEnd && hasNextRef.current) loadComplaints(cursorRef.current, tabRef.current, keyword)
+          }}
+        >
           <Header>
             <Title>접수함</Title>
             <Building>{inboxDummy.building}</Building>
@@ -388,34 +486,40 @@ function Inbox({ onNavigate }) {
             <img src={searchIcon} alt="" width="16" height="16" />
             <SearchInput
               value={query}
-              placeholder={inboxDummy.searchPlaceholder}
+              placeholder="건물·강의실·내용으로 검색"
               onChange={(event) => setQuery(event.target.value)}
             />
           </SearchBar>
 
-          <Summary aria-label={inboxDummy.repeat.title}>
+          <Summary aria-label="이번주 반복 민원">
             <SummaryTitle>
               <Spark>
                 <SparkMain src={sparkIcon} alt="" width="13.4484" height="13.7817" />
                 <SparkSmall src={sparkSmallIcon} alt="" width="5.44842" height="5.89842" />
               </Spark>
-              {inboxDummy.repeat.title}
+              이번주 반복 민원
             </SummaryTitle>
-            <Room>{inboxDummy.repeat.room}</Room>
-            <Note>{inboxDummy.repeat.summary}</Note>
-            <Action
-              type="button"
-              onClick={() => {
-                setTab('all')
-                setQuery(inboxDummy.repeat.query)
-              }}
-            >
-              {inboxDummy.repeat.action}
-            </Action>
+            {repeatError ? <Note $error>{repeatError}</Note> : null}
+            {!repeatError && repeated.length === 0 ? <Note>이번 주 반복 민원이 없어요</Note> : null}
+            {repeated.map((item) => (
+              <div key={item.roomId ?? item.room}>
+                <Room>{item.room}</Room>
+                {item.message ? <Note>{item.message}</Note> : null}
+                <Action
+                  type="button"
+                  onClick={() => {
+                    setTab('all')
+                    setQuery(item.room ?? '')
+                  }}
+                >
+                  관련 민원 확인
+                </Action>
+              </div>
+            ))}
           </Summary>
 
           <Tabs>
-            {inboxDummy.tabs.map((item) => (
+            {tabs.map((item) => (
               <Tab key={item.id} type="button" $selected={tab === item.id} onClick={() => setTab(item.id)}>
                 {item.label}
               </Tab>
@@ -423,7 +527,9 @@ function Inbox({ onNavigate }) {
           </Tabs>
 
           <List>
-            {visibleComplaints.map((item) => (
+            {listError ? <ListNote>{listError}</ListNote> : null}
+            {!loading && !listError && complaints.length === 0 ? <ListNote $muted>민원이 없어요</ListNote> : null}
+            {complaints.map((item) => (
               <Card key={item.id}>
                 <Badge $tone={item.status}>
                   <BadgeText $lift={item.status !== 'received'}>{item.badge}</BadgeText>
@@ -431,12 +537,7 @@ function Inbox({ onNavigate }) {
                 <Time>{item.time}</Time>
                 <Place $done={item.status === 'done'}>{item.place}</Place>
                 <Body>{item.body}</Body>
-                <More
-                  as={item.detail ? 'button' : 'span'}
-                  type={item.detail ? 'button' : undefined}
-                  $link={Boolean(item.detail)}
-                  onClick={item.detail ? () => setDetail(item) : undefined}
-                >
+                <More as="button" type="button" $link onClick={() => setDetail(item)}>
                   상세 보기
                   <img src={arrowIcon} alt="" width="15" height="15" />
                 </More>

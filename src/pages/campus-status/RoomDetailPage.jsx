@@ -1,4 +1,5 @@
 import styled, { css } from 'styled-components'
+import { roomAirStatus } from '../../api/campus-status.js'
 import campusEllipse from '../../assets/images/bg-campus-ellipse.svg'
 import backIcon from '../../assets/images/icon-back.svg'
 import ventIcon from '../../assets/images/icon-vent.svg'
@@ -13,11 +14,6 @@ import chartMeasuredLine from '../../assets/images/chart-measured-line.svg'
 import chartPredictedLine from '../../assets/images/chart-predicted-line.svg'
 import chartNowLine from '../../assets/images/chart-now-line.svg'
 import chartNowDot from '../../assets/images/chart-now-dot.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const glass = css`
   border: 1px solid rgba(255, 255, 255, 0.65);
@@ -55,22 +51,6 @@ const Ellipse = styled.img`
   left: -252px;
   z-index: 0;
   pointer-events: none;
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const BackButton = styled.button`
@@ -490,49 +470,50 @@ const ClassTime = styled.span`
   font-weight: 400;
 `
 
-const comfortScore = { exceed: '38', warn: '62', normal: '82' }
-
-const statusLine = {
-  exceed: { text: (gap) => `심각 · 기준보다 ${gap} 높음`, color: '#f75255' },
-  warn: { text: () => '주의 · 곧 기준을 넘을 수 있어요', color: '#ff9d00' },
-  normal: { text: () => '정상', color: '#74a842' },
+function displayNumber(value) {
+  if (value === undefined || value === null || value === '') return '—'
+  const number = Number(value)
+  if (Number.isNaN(number)) return String(value)
+  return Number.isInteger(number) ? number.toLocaleString('ko-KR') : String(number)
 }
 
-function RoomDetailPage({ room, floor, onBack }) {
-  const gap = Math.max(room.co2 - 1000, 0).toLocaleString('en-US')
-  const line = statusLine[room.tone]
-  const temperature = room.temperature.replace('°C', '').trim()
-  const humidity = room.humidity.replace('%', '').trim()
+function classTime(item) {
+  if (!item?.start || !item?.end) return ''
+  return `${item.start}–${item.end}`
+}
+
+function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
+  const status = detail ? roomAirStatus(detail) : null
+  const number = detail?.number
+  const placeFloor = detail?.floor ?? floor
+  const building = detail?.building || '북악관'
+  const statusText = loadError || (loading ? '강의실 정보를 불러오고 있어요' : status?.label || '—')
+  const statusColor = loadError ? '#c93a24' : status?.color || '#5f6a8f'
 
   return (
     <PageRoot>
       <Screen>
         <Ellipse src={campusEllipse} alt="" width="875" height="875" />
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
 
         <BackButton type="button" aria-label="캠퍼스 현황으로 돌아가기" onClick={onBack}>
           <img src={backIcon} alt="" width="22" height="22" />
         </BackButton>
-        <RoomTitle>{room.number} 호</RoomTitle>
-        <RoomPlace>북악관 {floor}층 · 강의실</RoomPlace>
+        <RoomTitle>{number ? `${number} 호` : '강의실'}</RoomTitle>
+        <RoomPlace>{building} {placeFloor}층 · 강의실</RoomPlace>
 
         <AirCard aria-label="지금 공기 상태">
           <AirLabel>지금 CO₂</AirLabel>
           <AirReading>
-            <AirValue>{room.co2Label}</AirValue>
+            <AirValue>{displayNumber(detail?.co2)}</AirValue>
             <AirUnit>ppm</AirUnit>
           </AirReading>
-          <AirStatus $color={line.color}>{line.text(gap)}</AirStatus>
-          <VentBanner>
-            <img src={ventIcon} alt="" width="18" height="18" />
-            환기 진행중
-          </VentBanner>
+          <AirStatus $color={statusColor}>{statusText}</AirStatus>
+          {detail?.ventilating ? (
+            <VentBanner>
+              <img src={ventIcon} alt="" width="18" height="18" />
+              환기 진행중
+            </VentBanner>
+          ) : null}
           <Gauge aria-hidden="true">
             <GaugeTrack src={gaugeTrack} alt="" width="86" height="86" />
             <GaugeFillWrap>
@@ -540,7 +521,7 @@ function RoomDetailPage({ room, floor, onBack }) {
                 <GaugeFill src={gaugeFill} alt="" width="75.704" height="48.0006" />
               </GaugeFillRotate>
             </GaugeFillWrap>
-            <Score>{comfortScore[room.tone]}</Score>
+            <Score>{displayNumber(detail?.comfortScore)}</Score>
             <ScoreLabel>쾌적도</ScoreLabel>
           </Gauge>
         </AirCard>
@@ -551,10 +532,10 @@ function RoomDetailPage({ room, floor, onBack }) {
           </MiniIcon>
           <MiniName>온도</MiniName>
           <MiniReading>
-            <MiniValue>{temperature}</MiniValue>
+            <MiniValue>{displayNumber(detail?.temp)}</MiniValue>
             <MiniUnit>°C</MiniUnit>
           </MiniReading>
-          <MiniNote>살짝 더워요 · 적정 20–24</MiniNote>
+          <MiniNote>{detail?.tempLabel || '—'}</MiniNote>
         </MiniCard>
 
         <MiniCard $side="right" aria-label="습도">
@@ -563,10 +544,10 @@ function RoomDetailPage({ room, floor, onBack }) {
           </MiniIcon>
           <MiniName>습도</MiniName>
           <MiniReading>
-            <MiniValue>{humidity}</MiniValue>
+            <MiniValue>{displayNumber(detail?.humidity)}</MiniValue>
             <MiniUnit>%</MiniUnit>
           </MiniReading>
-          <MiniNote>조금 습해요 · 적정 40–60</MiniNote>
+          <MiniNote>{detail?.humidityLabel || '—'}</MiniNote>
         </MiniCard>
 
         <ChartCard aria-label="오늘 CO₂ 흐름">
@@ -600,15 +581,18 @@ function RoomDetailPage({ room, floor, onBack }) {
           <ClassRow $top="11px">
             <ClassBadge>지금</ClassBadge>
             <ClassCopy>
-              자료구조
-              <ClassTime>13:00–14:15</ClassTime>
+              {detail?.currentClass?.courseName || '수업 없음'}
+              <ClassTime>{classTime(detail?.currentClass)}</ClassTime>
             </ClassCopy>
           </ClassRow>
           <ClassRow $top="62px" $divided>
             <ClassBadge $next>다음</ClassBadge>
             <ClassCopy>
-              운영체제
-              <ClassTime>15:00–16:15</ClassTime>
+              {detail?.nextClass?.courseName || '수업 없음'}
+              <ClassTime>
+                {classTime(detail?.nextClass)}
+                {detail?.nextClass?.tip ? ` · ${detail.nextClass.tip}` : ''}
+              </ClassTime>
             </ClassCopy>
           </ClassRow>
         </ScheduleCard>

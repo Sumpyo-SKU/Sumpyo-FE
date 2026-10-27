@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import styled, { css } from 'styled-components'
+import { useEffect, useState } from 'react'
+import styled from 'styled-components'
 import Header from '../../common/Header/Header.jsx'
 import Footer from '../../common/Footer/Footer.jsx'
 import Card from '../../components/Card/Card.jsx'
@@ -8,25 +8,30 @@ import AlertsPage from './AlertsPage.jsx'
 import SettingsPage from './SettingsPage.jsx'
 import ZonePage from './ZonePage.jsx'
 import ThresholdPage from './ThresholdPage.jsx'
-import alertsDummy from '../../services/alertsDummy.js'
+import QrPage from './QrPage.jsx'
 import RoomPicker from './RoomPicker.jsx'
-import forecastDummy from '../../services/forecastDummy.js'
-import classroomsDummy from '../../services/classroomsDummy.js'
+import {
+  getActions,
+  getLatestOutdoorAir,
+  getMyRooms,
+  getRoomLatestReading,
+  getRoomMeasuredReadings,
+  getRoomNextClassForecast,
+  getRoomPredictions,
+} from '../../api/home.js'
+import { getUnreadNotificationCount } from '../../api/alertspage.js'
+import { getMySettings, mapMySettings, saveMySettings } from '../../api/settingspage.js'
 import bgEllipse1 from '../../assets/images/bg-ellipse-1.svg'
 import bgEllipse2 from '../../assets/images/bg-ellipse-2.svg'
 import bgEllipse3 from '../../assets/images/bg-ellipse-3.svg'
 import bgEllipse4 from '../../assets/images/bg-ellipse-4.svg'
 import bgEllipse5 from '../../assets/images/bg-ellipse-5.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
-import gaugeImage from '../../assets/images/gauge.svg'
 import characterBase from '../../assets/images/character-base.png'
 import characterLeaf from '../../assets/images/character-leaf.png'
 import characterWind from '../../assets/images/character-wind.png'
 import characterPlug from '../../assets/images/character-plug.png'
+import characterMid from '../../assets/images/character-mid.png'
+import characterLow from '../../assets/images/character-low.png'
 import co2Icon from '../../assets/images/icon-co2.svg'
 import temperatureIcon from '../../assets/images/icon-temperature.svg'
 import humidityIcon from '../../assets/images/icon-humidity.svg'
@@ -63,22 +68,6 @@ const BackgroundEllipse = styled.img`
   position: absolute;
   top: ${({ $top }) => $top};
   left: ${({ $left }) => $left};
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const Segment = styled.div`
@@ -134,6 +123,20 @@ const SegmentItem = styled.button`
   cursor: pointer;
 `
 
+const LoadNote = styled.p`
+  position: absolute;
+  top: 208px;
+  left: 16px;
+  z-index: 1;
+  width: 358px;
+  margin: 0;
+  color: #c93a24;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+`
+
 const Score = styled.p`
   position: absolute;
   top: 174px;
@@ -182,6 +185,29 @@ const Character = styled.div`
 const CharacterBase = styled.img`
   width: 100%;
   height: 100%;
+  object-fit: cover;
+`
+
+const GaugeSvg = styled.svg`
+  display: block;
+  overflow: visible;
+`
+
+const MidCharacter = styled.img`
+  position: absolute;
+  top: 45px;
+  left: 59px;
+  width: 187px;
+  height: 193px;
+  object-fit: cover;
+`
+
+const LowCharacter = styled.img`
+  position: absolute;
+  top: 100px;
+  left: 41px;
+  width: 211px;
+  height: 135px;
   object-fit: cover;
 `
 
@@ -332,9 +358,164 @@ const backgroundEllipses = [
   { src: bgEllipse5, top: '-373px', left: '-643px', width: '1109', height: '1109' },
 ]
 
+const gaugeArc = 'M 49.7278 204.733 A 113.473 113.473 0 1 1 246.272 204.733'
+
+const gaugeColors = {
+  high: ['#9DCCFF', '#57AEFF'],
+  mid: ['#ECDFC0', '#FFAA6E'],
+  low: ['#C2D7FF', '#FF7A6E'],
+}
+
+function comfortBand(score) {
+  const value = Number(score)
+  if (!Number.isFinite(value) || value >= 70) return 'high'
+  if (value >= 40) return 'mid'
+  return 'low'
+}
+
+function comfortRatio(score) {
+  const value = Number(score)
+  if (!Number.isFinite(value)) return 0
+  return Math.min(1, Math.max(0, value / 100))
+}
+
+function ComfortGauge({ score, band }) {
+  const ratio = comfortRatio(score)
+  const [from, to] = gaugeColors[band]
+
+  return (
+    <GaugeSvg viewBox="0 0 296 226.933" width="296" height="226.933" aria-hidden="true">
+      <defs>
+        <linearGradient id="home-comfort-gauge" x1="148" y1="34.545" x2="148" y2="204.733" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor={from} />
+          <stop offset="1" stopColor={to} />
+        </linearGradient>
+      </defs>
+      <path d={gaugeArc} fill="none" stroke="#D7D7E3" strokeWidth="32.56" strokeLinecap="round" />
+      {ratio > 0 ? (
+        <path
+          d={gaugeArc}
+          fill="none"
+          stroke="url(#home-comfort-gauge)"
+          strokeWidth="32.56"
+          strokeLinecap="round"
+          pathLength="100"
+          strokeDasharray={`${ratio * 100} 100`}
+        />
+      ) : null}
+    </GaugeSvg>
+  )
+}
+
+function preferredRoom(list, zones) {
+  const bukak = (zones ?? []).find((zone) => zone.building === '북악관' || Number(zone.buildingId) === 1)
+  const floors = (bukak?.floors ?? []).map(Number)
+  const label = floors.includes(6) ? '북악관 · 617호' : floors.includes(5) ? '북악관 · 517호' : ''
+  return (label && list.find((item) => item.label === label)) || list[0] || null
+}
+
+function displayNumber(value) {
+  if (value === undefined || value === null || value === '') return '—'
+  const number = Number(value)
+  if (Number.isNaN(number)) return String(value)
+  return Number.isInteger(number) ? number.toLocaleString('ko-KR') : String(number)
+}
+
+function clockLabel(value) {
+  if (!value) return ''
+  const text = String(value)
+  if (/^\d{2}:\d{2}$/.test(text)) return text
+  const time = text.split('T')[1]
+  return time ? time.slice(0, 5) : ''
+}
+
+function messageTone(action) {
+  if (action.recommend === 'CLOSE' || action.title?.includes('닫')) return 'calm'
+  if (action.title?.includes('수업 전')) return 'warn'
+  return 'alert'
+}
+
+function badgeTone(action) {
+  if (!action.relative || action.timeLabel === '지금' || action.timing === 'NOW') return 'now'
+  if (String(action.relative).includes('시간')) return 'later'
+  return 'soon'
+}
+
+function actionCard(action) {
+  const tone = messageTone(action)
+  const metric = action.metric === 'CO2' ? 'CO2' : 'other'
+  const scale = metric === 'CO2' ? 1500 : 100
+  const value = Number(action.predictedValue)
+  const markerSource = Number(metric === 'CO2' ? action.threshold : action.rangeMax)
+  const unit = action.metric === 'CO2'
+    ? ` ${action.unit || 'ppm'} · 기준 ${displayNumber(action.threshold)}`
+    : ` ${action.unit || ''}${action.rangeMin != null ? ` · 적정 ${action.rangeMin}–${action.rangeMax}` : ''}`
+
+  return {
+    id: action.actionId,
+    name: action.number ? `${action.number}호` : action.room,
+    badge: {
+      text: !action.relative || action.timeLabel === '지금' ? '지금' : `${action.timeLabel} · ${action.relative}`,
+      tone: badgeTone(action),
+    },
+    message: action.title,
+    messageTone: tone,
+    note: action.reason,
+    metricLabel: action.metricLabel,
+    metricValue: displayNumber(action.predictedValue),
+    metricUnit: unit,
+    barPercent: Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round((value / scale) * 100))) : 0,
+    markerPercent: Number.isFinite(markerSource) ? Math.max(0, Math.min(100, Math.round((markerSource / scale) * 100))) : 0,
+    barColor: tone === 'calm' ? '#6e9bcb' : tone === 'warn' ? '#ffad60' : '#e5585d',
+  }
+}
+
+function forecastViewData({ room, forecast, readings, predictions, actions }) {
+  const measured = readings?.points ?? []
+  const predicted = predictions?.points ?? []
+  const lastMeasured = measured[measured.length - 1]
+  const lastPredicted = predicted[predicted.length - 1]
+  const buildingName = room?.label?.split('·')[0]?.trim() || '담당 구역'
+  const threshold = forecast?.threshold ?? 1000
+
+  return {
+    summary: {
+      caption: forecast?.start ? `${forecast.start}–${forecast.end} 수업 · ${forecast.condition || '창문을 닫아두면'}` : '오늘 남은 수업이 없어요',
+      title: forecast?.headline || '예정된 수업이 없어요',
+      co2Lead: '수업 종료 시 CO₂ ',
+      co2Value: forecast?.co2AtEnd == null ? '—' : `${displayNumber(forecast.co2AtEnd)} ppm`,
+      co2Tail: forecast?.co2AtEnd == null ? '' : ' 예상',
+    },
+    chart: {
+      yLabels: ['1,500', '1,000', '600'],
+      times: [
+        clockLabel(measured[0]?.at) || forecast?.start || '—',
+        clockLabel(lastMeasured?.at) || '지금',
+        clockLabel(lastPredicted?.at) || forecast?.end || '—',
+      ],
+      measuredLabel: lastMeasured ? displayNumber(lastMeasured.co2) : '—',
+      predictedLabel: forecast?.co2AtEnd != null ? displayNumber(forecast.co2AtEnd) : displayNumber(lastPredicted?.co2),
+      legendMeasured: '실측',
+      legendPredicted: '예측',
+      legendGuide: `${displayNumber(threshold)} ppm · 환기 권장선`,
+    },
+    sectionTitle: `창문 환기 예측 · ${buildingName}`,
+    rooms: (actions ?? []).map(actionCard),
+  }
+}
+
 function Home({ onNavigate, zones, onZonesChange }) {
   const [view, setView] = useState('now')
-  const [room, setRoom] = useState(classroomsDummy.defaultRoom)
+  const [rooms, setRooms] = useState([])
+  const [selectedRoom, setSelectedRoom] = useState(null)
+  const [latest, setLatest] = useState(null)
+  const [outdoor, setOutdoor] = useState(null)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [classForecast, setClassForecast] = useState(null)
+  const [readings, setReadings] = useState(null)
+  const [predictions, setPredictions] = useState(null)
+  const [actions, setActions] = useState([])
+  const [loadError, setLoadError] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [settingsView, setSettingsView] = useState(null)
@@ -347,11 +528,92 @@ function Home({ onNavigate, zones, onZonesChange }) {
     sensor: true,
   })
   const [threshold, setThreshold] = useState({ ppm: 1000, fan: true, lead: 15 })
+  const [settingsError, setSettingsError] = useState('')
   const isForecast = view === 'forecast'
-  const visibleAlerts = {
-    ...alertsDummy,
-    items: alertsDummy.items.filter((item) => notice[item.channel] !== false),
-  }
+  const forecastData = forecastViewData({
+    room: selectedRoom,
+    forecast: classForecast,
+    readings,
+    predictions,
+    actions,
+  })
+  useEffect(() => {
+    let cancelled = false
+
+    getMySettings()
+      .then((payload) => {
+        if (cancelled) return
+        const settings = mapMySettings(payload.data)
+        setNotice(settings.notice)
+        setThreshold(settings.threshold)
+      })
+      .catch((error) => {
+        if (!cancelled) setLoadError(error.message || '설정을 불러오지 못했습니다.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadHome() {
+      const [roomsResult, outdoorResult, unreadResult] = await Promise.allSettled([
+        getMyRooms(),
+        getLatestOutdoorAir(),
+        getUnreadNotificationCount(),
+      ])
+      if (cancelled) return
+
+      if (roomsResult.status === 'fulfilled') {
+        const list = roomsResult.value.data ?? []
+        setRooms(list)
+        setSelectedRoom(preferredRoom(list, zones))
+        setLoadError(list.length ? '' : '담당 구역을 설정하면 강의실이 보여요')
+      } else {
+        setLoadError(roomsResult.reason?.message || '강의실을 불러오지 못했습니다.')
+      }
+
+      if (outdoorResult.status === 'fulfilled') setOutdoor(outdoorResult.value.data ?? null)
+      if (unreadResult.status === 'fulfilled') setUnreadCount(unreadResult.value.data?.unreadCount ?? 0)
+    }
+
+    loadHome()
+    return () => {
+      cancelled = true
+    }
+  }, [zones])
+
+  useEffect(() => {
+    if (!selectedRoom?.roomId) return undefined
+    let cancelled = false
+
+    async function loadRoom() {
+      const roomId = selectedRoom.roomId
+      const [latestResult, forecastResult, readingsResult, predictionsResult, actionsResult] = await Promise.allSettled([
+        getRoomLatestReading(roomId),
+        getRoomNextClassForecast(roomId),
+        getRoomMeasuredReadings(roomId),
+        getRoomPredictions(roomId),
+        getActions({ zone: 'mine', buildingId: selectedRoom.buildingId }),
+      ])
+      if (cancelled) return
+
+      if (latestResult.status === 'fulfilled') setLatest(latestResult.value.data ?? null)
+      else setLoadError(latestResult.reason?.message || '측정값을 불러오지 못했습니다.')
+      if (forecastResult.status === 'fulfilled') setClassForecast(forecastResult.value.data ?? null)
+      if (readingsResult.status === 'fulfilled') setReadings(readingsResult.value.data ?? null)
+      if (predictionsResult.status === 'fulfilled') setPredictions(predictionsResult.value.data ?? null)
+      if (actionsResult.status === 'fulfilled') setActions(actionsResult.value.data ?? [])
+    }
+
+    loadRoom()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedRoom])
 
   if (settingsView === 'zones') {
     return (
@@ -368,12 +630,39 @@ function Home({ onNavigate, zones, onZonesChange }) {
       <ThresholdPage
         saved={threshold}
         onBack={() => setSettingsView('settings')}
-        onSave={(next) => {
-          setThreshold(next)
+        onSave={async (next) => {
+          const payload = await saveMySettings({
+            co2Threshold: next.ppm,
+            alertEnabled: next.fan,
+            alertLeadMinutes: next.lead,
+          })
+          const settings = mapMySettings(payload.data)
+          setNotice(settings.notice)
+          setThreshold(settings.threshold)
+          setSettingsError('')
           setSettingsView('settings')
         }}
+        onReset={() => saveMySettings({
+          co2Threshold: 1000,
+          tempMin: 20,
+          tempMax: 26,
+          humidityMin: 40,
+          humidityMax: 60,
+          alertEnabled: true,
+          alertLeadMinutes: 15,
+        }).then((payload) => {
+          const settings = mapMySettings(payload.data)
+          setNotice(settings.notice)
+          setThreshold(settings.threshold)
+          setSettingsError('')
+          return settings.threshold
+        })}
       />
     )
+  }
+
+  if (settingsView === 'qr') {
+    return <QrPage roomId={selectedRoom?.roomId} onBack={() => setSettingsView('settings')} />
   }
 
   if (settingsView === 'settings') {
@@ -381,17 +670,53 @@ function Home({ onNavigate, zones, onZonesChange }) {
       <SettingsPage
         notice={notice}
         ppm={threshold.ppm}
-        onToggle={(key) => setNotice((current) => ({ ...current, [key]: !current[key] }))}
+        error={settingsError}
+        onToggle={async (key) => {
+          const field = {
+            ventilation: 'notifyVentilation',
+            complaint: 'notifyComplaint',
+            sensor: 'notifySensorError',
+          }[key]
+          const nextValue = !notice[key]
+          setNotice((current) => ({ ...current, [key]: nextValue }))
+          try {
+            const payload = await saveMySettings({ [field]: nextValue })
+            const settings = mapMySettings(payload.data)
+            setNotice(settings.notice)
+            setThreshold(settings.threshold)
+            setSettingsError('')
+          } catch (error) {
+            setNotice((current) => ({ ...current, [key]: !nextValue }))
+            setSettingsError(error.message || '설정을 저장하지 못했습니다.')
+          }
+        }}
         onBack={() => setSettingsView(null)}
         onOpenThreshold={() => setSettingsView('threshold')}
         onOpenZones={() => setSettingsView('zones')}
+        onOpenQr={() => setSettingsView('qr')}
       />
     )
   }
 
   if (alertsOpen) {
-    return <AlertsPage alerts={visibleAlerts} onBack={() => setAlertsOpen(false)} />
+    return (
+      <AlertsPage
+        notice={notice}
+        onUnreadCount={(count) => {
+          if (typeof count === 'number') {
+            setUnreadCount(count)
+            return
+          }
+          getUnreadNotificationCount()
+            .then((payload) => setUnreadCount(payload.data?.unreadCount ?? 0))
+            .catch(() => {})
+        }}
+        onBack={() => setAlertsOpen(false)}
+      />
+    )
   }
+
+  const comfort = comfortBand(latest?.comfortScore)
 
   return (
     <HomeRoot>
@@ -410,17 +735,11 @@ function Home({ onNavigate, zones, onZonesChange }) {
           ))}
         </HomeBackground>
 
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
 
         <Header
-          room={room}
+          room={selectedRoom?.label || (loadError ? '강의실 없음' : '강의실 선택')}
           pickerOpen={pickerOpen}
+          unreadCount={unreadCount}
           onRoomClick={() => setPickerOpen((open) => !open)}
           onBellClick={() => {
             setPickerOpen(false)
@@ -442,30 +761,35 @@ function Home({ onNavigate, zones, onZonesChange }) {
               수업 중 예보
             </SegmentItem>
           </Segment>
+          {loadError ? <LoadNote>{loadError}</LoadNote> : null}
 
           {isForecast ? (
-            <ForecastView data={forecastDummy} />
+            <ForecastView data={forecastData} />
           ) : (
             <>
               <Score>
-                <ScoreValue>86</ScoreValue>
+                <ScoreValue>{displayNumber(latest?.comfortScore)}</ScoreValue>
                 <ScoreSuffix> / 100 쾌적도</ScoreSuffix>
               </Score>
 
               <Hero>
-                <img src={gaugeImage} alt="" width="296" height="226.933" />
-                <Character>
-                  <CharacterBase src={characterBase} alt="쾌적도를 나타내는 캐릭터" />
-                  <CharacterPart $top="65.56%" $right="76.47%" $bottom="27.78%" $left="15.55%" $imgTop="4.95%" $imgLeft="1%" $imgWidth="97.27%" $imgHeight="91.59%">
-                    <img src={characterLeaf} alt="" />
-                  </CharacterPart>
-                  <CharacterPart $top="30.56%" $right="80.25%" $bottom="58.89%" $left="7.98%" $imgTop="2.75%" $imgLeft="1.96%" $imgWidth="96.28%" $imgHeight="95.51%">
-                    <img src={characterWind} alt="" />
-                  </CharacterPart>
-                  <CharacterPart $top="52.22%" $right="10.5%" $bottom="41.11%" $left="75.63%" $imgTop="1.87%" $imgLeft="0.49%" $imgWidth="101.22%" $imgHeight="94.77%">
-                    <img src={characterPlug} alt="" />
-                  </CharacterPart>
-                </Character>
+                <ComfortGauge score={latest?.comfortScore} band={comfort} />
+                {comfort === 'low' ? <LowCharacter src={characterLow} alt="쾌적도를 나타내는 캐릭터" /> : null}
+                {comfort === 'mid' ? <MidCharacter src={characterMid} alt="쾌적도를 나타내는 캐릭터" /> : null}
+                {comfort === 'high' ? (
+                  <Character>
+                    <CharacterBase src={characterBase} alt="쾌적도를 나타내는 캐릭터" />
+                    <CharacterPart $top="65.56%" $right="76.47%" $bottom="27.78%" $left="15.55%" $imgTop="4.95%" $imgLeft="1%" $imgWidth="97.27%" $imgHeight="91.59%">
+                      <img src={characterLeaf} alt="" />
+                    </CharacterPart>
+                    <CharacterPart $top="30.56%" $right="80.25%" $bottom="58.89%" $left="7.98%" $imgTop="2.75%" $imgLeft="1.96%" $imgWidth="96.28%" $imgHeight="95.51%">
+                      <img src={characterWind} alt="" />
+                    </CharacterPart>
+                    <CharacterPart $top="52.22%" $right="10.5%" $bottom="41.11%" $left="75.63%" $imgTop="1.87%" $imgLeft="0.49%" $imgWidth="101.22%" $imgHeight="94.77%">
+                      <img src={characterPlug} alt="" />
+                    </CharacterPart>
+                  </Character>
+                ) : null}
               </Hero>
 
               <MetricsCard $variant="metric">
@@ -473,7 +797,7 @@ function Home({ onNavigate, zones, onZonesChange }) {
                   <img src={co2Icon} alt="" width="24" height="24" />
                   <MetricLabel>CO₂</MetricLabel>
                   <MetricValue>
-                    <MetricNumber>640</MetricNumber>
+                    <MetricNumber>{displayNumber(latest?.co2)}</MetricNumber>
                     <MetricUnit $ppm>ppm</MetricUnit>
                   </MetricValue>
                 </Metric>
@@ -484,7 +808,7 @@ function Home({ onNavigate, zones, onZonesChange }) {
                   <img src={temperatureIcon} alt="" width="24" height="24" />
                   <MetricLabel>교실 온도</MetricLabel>
                   <MetricValue>
-                    <MetricNumber>24</MetricNumber>
+                    <MetricNumber>{displayNumber(latest?.temp)}</MetricNumber>
                     <MetricUnit>°C</MetricUnit>
                   </MetricValue>
                 </Metric>
@@ -495,7 +819,7 @@ function Home({ onNavigate, zones, onZonesChange }) {
                   <img src={humidityIcon} alt="" width="24" height="24" />
                   <MetricLabel>습도</MetricLabel>
                   <MetricValue>
-                    <MetricNumber>48</MetricNumber>
+                    <MetricNumber>{displayNumber(latest?.humidity)}</MetricNumber>
                     <MetricUnit>%</MetricUnit>
                   </MetricValue>
                 </Metric>
@@ -509,7 +833,7 @@ function Home({ onNavigate, zones, onZonesChange }) {
                   <OutdoorCopy>
                     <OutdoorName>미세먼지 농도</OutdoorName>
                     <OutdoorValue>
-                      <OutdoorNumber>28</OutdoorNumber>
+                      <OutdoorNumber>{displayNumber(outdoor?.pm10)}</OutdoorNumber>
                       <OutdoorUnit>㎍/㎥</OutdoorUnit>
                     </OutdoorValue>
                   </OutdoorCopy>
@@ -519,7 +843,7 @@ function Home({ onNavigate, zones, onZonesChange }) {
                   <OutdoorCopy>
                     <OutdoorName>실외 온도</OutdoorName>
                     <OutdoorValue>
-                      <OutdoorNumber>18</OutdoorNumber>
+                      <OutdoorNumber>{displayNumber(outdoor?.temp)}</OutdoorNumber>
                       <OutdoorUnit>°C</OutdoorUnit>
                     </OutdoorValue>
                   </OutdoorCopy>
@@ -533,10 +857,11 @@ function Home({ onNavigate, zones, onZonesChange }) {
 
         {pickerOpen ? (
           <RoomPicker
-            rooms={classroomsDummy.rooms}
-            selected={room}
-            onSelect={(nextRoom) => {
-              setRoom(nextRoom)
+            rooms={rooms.map((item) => item.label)}
+            selected={selectedRoom?.label ?? ''}
+            onSelect={(label) => {
+              const next = rooms.find((item) => item.label === label)
+              if (next) setSelectedRoom(next)
               setPickerOpen(false)
             }}
             onClose={() => setPickerOpen(false)}

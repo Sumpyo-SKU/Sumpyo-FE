@@ -1,13 +1,32 @@
 import { useRef } from 'react'
 import styled, { css } from 'styled-components'
-import campusDummy from '../../services/campusDummy.js'
 
 const contentTop = 48
-const rowTop = { top: contentTop, bottom: contentTop + 114 }
+const rowTop = { TOP: contentTop, BOTTOM: contentTop + 114 }
 const hallTop = contentTop + 74
 const cellWidth = 77
 const sideInset = 30
-const planWidth = campusDummy.columns[campusDummy.columns.length - 1] + cellWidth + sideInset
+const columns = [30, 113, 196, 279, 368, 458, 541, 624, 707]
+const halls = [
+  { left: 30, width: 374 },
+  { left: 404, width: 380 },
+]
+
+function cellLeft(room) {
+  const index = room.side === 'TOP' && room.order >= 5 ? room.order : room.order - 1
+  return columns[index] ?? sideInset + index * 83
+}
+
+function planWidth(rooms) {
+  const maxLeft = rooms.reduce((max, room) => Math.max(max, cellLeft(room)), sideInset)
+  return maxLeft + cellWidth + sideInset
+}
+
+function planTone(status) {
+  if (status === 'OVER') return 'exceed'
+  if (status === 'CAUTION') return 'warn'
+  return 'normal'
+}
 
 const cellTone = {
   normal: '#dcdfe8',
@@ -36,7 +55,7 @@ const Scroller = styled.div`
 
 const PlanCard = styled.div`
   position: relative;
-  width: ${planWidth}px;
+  width: ${({ $width }) => $width}px;
   height: 100%;
   border-radius: 22px;
   background: #ffffff;
@@ -104,8 +123,8 @@ const RoomPpm = styled.span`
   text-align: center;
 `
 
-function FloorPlan({ floor, selectedId, onSelect }) {
-  const cells = campusDummy.plans[floor]
+function FloorPlan({ rooms, selectedId, onSelect }) {
+  const cells = rooms ?? []
   const scrollerRef = useRef(null)
   const dragRef = useRef(null)
   const draggedRef = useRef(false)
@@ -153,30 +172,32 @@ function FloorPlan({ floor, selectedId, onSelect }) {
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      <PlanCard>
-        {campusDummy.halls.map((hall) => (
-          <Hall key={`${floor}-${hall.left}`} $left={hall.left} $width={hall.width}>
+      <PlanCard $width={planWidth(cells)}>
+        {halls.map((hall) => (
+          <Hall key={hall.left} $left={hall.left} $width={hall.width}>
             복도
           </Hall>
         ))}
         {cells.map((cell) => {
-          const isRoom = cell.kind === 'room'
+          const isRoom = cell.type !== 'RESTROOM'
+          const tone = planTone(cell.status)
+          const selected = isRoom && String(cell.roomId) === String(selectedId)
           return (
             <Cell
-              key={cell.id}
+              key={cell.roomId}
               as={isRoom ? 'button' : 'div'}
               type={isRoom ? 'button' : undefined}
-              $left={campusDummy.columns[cell.column]}
-              $top={rowTop[cell.row]}
-              $tone={cell.tone}
+              $left={cellLeft(cell)}
+              $top={rowTop[cell.side] ?? rowTop.BOTTOM}
+              $tone={tone}
               $interactive={isRoom}
-              data-room-id={isRoom ? cell.id : undefined}
-              $selected={isRoom && cell.id === selectedId}
-              aria-pressed={isRoom ? cell.id === selectedId : undefined}
+              data-room-id={isRoom ? cell.roomId : undefined}
+              $selected={selected}
+              aria-pressed={isRoom ? selected : undefined}
             >
-              <RoomNumber $toilet={!isRoom}>{isRoom ? cell.number : cell.label}</RoomNumber>
-              {isRoom && cell.showCo2 ? (
-                <RoomPpm $alert={cell.tone === 'exceed'}>{cell.co2Label}</RoomPpm>
+              <RoomNumber $toilet={!isRoom}>{isRoom ? cell.number : '화장실'}</RoomNumber>
+              {isRoom && cell.co2 != null && cell.status !== 'NO_SENSOR' ? (
+                <RoomPpm $alert={cell.status === 'OVER'}>{Number(cell.co2).toLocaleString('ko-KR')}</RoomPpm>
               ) : null}
             </Cell>
           )

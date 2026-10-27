@@ -1,15 +1,10 @@
-import { useRef, useState } from 'react'
-import styled, { css } from 'styled-components'
-import talkDummy from '../../services/talkDummy.js'
+import { useEffect, useRef, useState } from 'react'
+import styled from 'styled-components'
+import { createTalkReply, deleteTalk, deleteTalkReply, getTalkDetail } from '../../api/campus-talk.js'
 import ellipse from '../../assets/images/bg-edit-ellipse.svg'
 import backIcon from '../../assets/images/icon-back.svg'
 import avatarIcon from '../../assets/images/icon-talk-avatar.svg'
 import replyButton from '../../assets/images/icon-talk-reply-button.png'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const badgeTones = {
   unread: { background: '#ffe3e3', color: '#fe7e7e' },
@@ -41,22 +36,6 @@ const Ellipse = styled.img`
   left: -252px;
   z-index: 0;
   pointer-events: none;
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 4;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const Header = styled.header`
@@ -166,11 +145,84 @@ const Avatar = styled.span`
 `
 
 const Author = styled.p`
+  flex: 1;
   margin: 0;
   color: #263e50;
   font-size: 11px;
   font-weight: 500;
   line-height: 20px;
+`
+
+const DeleteButton = styled.button`
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #c93a24;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+`
+
+const ConfirmLayer = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(22, 26, 43, 0.28);
+`
+
+const ConfirmCard = styled.div`
+  width: 100%;
+  padding: 28px 20px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 32px rgba(60, 80, 160, 0.12);
+`
+
+const ConfirmText = styled.p`
+  margin: 0;
+  color: #161a2b;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+`
+
+const ConfirmActions = styled.div`
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+`
+
+const ConfirmButton = styled.button`
+  flex: 1;
+  height: 48px;
+  margin: 0;
+  border: ${({ $primary }) => ($primary ? 'none' : '1px solid #d4e8fb')};
+  border-radius: 16px;
+  background: ${({ $primary }) => ($primary ? '#56a6f0' : '#ffffff')};
+  color: ${({ $primary }) => ($primary ? '#ffffff' : '#6d96bc')};
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
 `
 
 const SectionLabel = styled.h2`
@@ -246,10 +298,35 @@ const ReplyCard = styled.section`
 
 const ReplyText = styled.p`
   margin: 0;
-  color: #263e50;
+  color: ${({ $deleted }) => ($deleted ? '#8b93a7' : '#263e50')};
   font-size: 13px;
   font-weight: 500;
   line-height: 20px;
+`
+
+const ReplySide = styled.div`
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+`
+
+const ReplyDelete = styled.button`
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #c93a24;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
 `
 
 const ReplyTime = styled.span`
@@ -285,10 +362,11 @@ const BubbleList = styled.div`
 `
 
 const Bubble = styled.button`
-  width: ${({ $width }) => `${$width}px`};
+  width: fit-content;
+  max-width: 100%;
   height: 33px;
   margin: 0;
-  padding: 0 8px;
+  padding: 0 16px;
   border: ${({ $on }) => ($on ? '1.5px solid #56a6f0' : '1px solid #d4e8fb')};
   border-radius: 30px;
   background: ${({ $on }) => ($on ? 'rgba(86, 166, 240, 0.1)' : '#ffffff')};
@@ -343,6 +421,11 @@ const SendButton = styled.button`
   border: none;
   background: none;
   cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
 `
 
 const SendIcon = styled.img`
@@ -350,20 +433,31 @@ const SendIcon = styled.img`
   filter: drop-shadow(0 4px 8px rgba(86, 166, 240, 0.45));
 `
 
-function detailOf(post) {
-  if (post.detail) return post.detail
-  const title = post.place.includes('북악') ? post.place : `북악관 ${post.place}`
-  return {
-    title,
-    date: '2026.10.06 14:00',
-    author: '김근로 · 북악관 6층',
-    room: 'OO호',
-    lines: [post.body],
-    placeholder: `${title} 연락에 답변하기`,
-  }
+const ReplyNote = styled.p`
+  margin: 8px 2px 0;
+  color: #c93a24;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
+
+const LoadNote = styled.p`
+  margin: 24px 20px;
+  color: ${({ $muted }) => ($muted ? '#5f6a8f' : '#c93a24')};
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
+
+const detailStatus = {
+  UNREAD: { id: 'unread', badge: '미확인' },
+  CHECKING: { id: 'checking', badge: '확인 중' },
+  ANSWERED: { id: 'answered', badge: '답변 완료' },
 }
 
-function replyTime(date = new Date()) {
+function replyTime(createdAt) {
+  const date = createdAt ? new Date(createdAt) : new Date()
+  if (Number.isNaN(date.getTime())) return replyTime()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   const hour = String(date.getHours()).padStart(2, '0')
@@ -371,123 +465,313 @@ function replyTime(date = new Date()) {
   return `${month}.${day} ${hour}:${minute}`
 }
 
-function fillFor(reply, room) {
-  if (reply.id === 'people') return `지금 ${room}에 사람 있어요`
-  if (reply.id === 'class') return `${room} 지금 수업 중이에요`
-  if (reply.id === 'custom') return ''
-  return reply.label
+function talkDate(createdAt) {
+  const date = createdAt ? new Date(createdAt) : null
+  if (!date || Number.isNaN(date.getTime())) return ''
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  return `${date.getFullYear()}.${month}.${day} ${hour}:${minute}`
 }
 
-function TalkDetail({ post, onBack, onReply }) {
-  const detail = detailOf(post)
+function mapTalkDetail(data) {
+  const tone = detailStatus[data?.status] ?? { id: 'unread', badge: data?.status || '' }
+  const title = [data?.building, data?.target].filter(Boolean).join(' ')
+  return {
+    talkId: data?.talkId,
+    title,
+    date: talkDate(data?.createdAt),
+    author: data?.sentByMe ? '나' : (data?.building || ''),
+    lines: String(data?.content ?? '').split('\n').filter((line) => line.length > 0),
+    status: tone.id,
+    badge: tone.badge,
+    sentByMe: Boolean(data?.sentByMe),
+    suggestions: data?.suggestions ?? [],
+    replies: (data?.replies ?? []).map((reply) => ({
+      replyId: reply.replyId,
+      text: reply.deleted ? (reply.content || '삭제된 답변입니다') : (reply.content ?? ''),
+      author: reply.deleted ? '' : (reply.author ?? ''),
+      time: replyTime(reply.createdAt),
+      mine: Boolean(reply.mine),
+      deleted: Boolean(reply.deleted),
+    })),
+  }
+}
+
+function TalkDetail({ post, onBack, onReply, onLoaded, onDeleted }) {
   const inputRef = useRef(null)
+  const [detail, setDetail] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [selected, setSelected] = useState(null)
   const [draft, setDraft] = useState('')
+  const [suggested, setSuggested] = useState(false)
+  const [error, setError] = useState('')
+  const [sending, setSending] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deletingReplyId, setDeletingReplyId] = useState(null)
+  const [confirming, setConfirming] = useState(false)
+  const suggestions = [
+    ...(detail?.suggestions ?? []).map((text, index) => ({ id: `suggestion-${index}`, label: text })),
+    { id: 'custom', label: '직접 입력' },
+  ]
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setLoadError('')
+    setDetail(null)
+
+    getTalkDetail(post.talkId)
+      .then((payload) => {
+        if (cancelled) return
+        const next = mapTalkDetail(payload.data)
+        setDetail(next)
+        onLoaded?.(next)
+      })
+      .catch((loadError) => {
+        if (cancelled) return
+        setLoadError(loadError.message || '캠퍼스톡을 불러오지 못했습니다.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [post.talkId])
 
   const selectReply = (reply) => {
     if (selected === reply.id) {
       setSelected(null)
       setDraft('')
+      setSuggested(false)
       return
     }
+    const text = reply.id === 'custom' ? '' : reply.label
     setSelected(reply.id)
-    setDraft(fillFor(reply, detail.room))
+    setDraft(text)
+    setSuggested(reply.id !== 'custom' && text.length > 0)
     if (reply.id === 'custom') inputRef.current?.focus()
   }
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault()
-    const reply = draft.trim()
-    if (!reply) return
-    onReply({ text: reply, time: replyTime() })
-    setSelected(null)
-    setDraft('')
+    const content = draft.trim()
+    if (content.length < 1 || content.length > 300) {
+      setError('내용은 1~300자로 입력해주세요.')
+      return
+    }
+
+    setSending(true)
+    setError('')
+    try {
+      const payload = await createTalkReply(post.talkId, { content, isSuggested: suggested })
+      const data = payload.data ?? {}
+      const tone = detailStatus[data.talkStatus] ?? { id: 'answered', badge: '답변 완료' }
+      const reply = {
+        replyId: data.replyId,
+        text: content,
+        author: '나',
+        time: replyTime(data.createdAt),
+        mine: true,
+        talkStatus: data.talkStatus,
+      }
+      setDetail((current) => current && ({
+        ...current,
+        status: tone.id,
+        badge: tone.badge,
+        replies: [...current.replies, reply],
+      }))
+      onReply(reply)
+      setSelected(null)
+      setDraft('')
+      setSuggested(false)
+      setSending(false)
+    } catch (sendError) {
+      setError(sendError.message || '답변을 보내지 못했습니다.')
+      setSending(false)
+    }
   }
+
+  const remove = async () => {
+    setDeleting(true)
+    setError('')
+    try {
+      await deleteTalk(post.talkId)
+      onDeleted?.()
+    } catch (deleteError) {
+      setError(deleteError.message || '캠퍼스톡을 삭제하지 못했습니다.')
+      setDeleting(false)
+    }
+  }
+
+  const removeReply = async (replyId) => {
+    setDeletingReplyId(replyId)
+    setError('')
+    try {
+      const payload = await deleteTalkReply(post.talkId, replyId)
+      const talkStatus = payload.data?.talkStatus
+      const tone = detailStatus[talkStatus]
+      setDetail((current) => {
+        if (!current) return current
+        return {
+          ...current,
+          status: tone?.id ?? current.status,
+          badge: tone?.badge ?? current.badge,
+          replies: current.replies.map((item) => (
+            item.replyId === replyId
+              ? { ...item, text: '삭제된 답변입니다', author: '', deleted: true }
+              : item
+          )),
+        }
+      })
+      if (talkStatus) onReply?.({ talkStatus })
+    } catch (deleteError) {
+      setError(deleteError.message || '답변을 삭제하지 못했습니다.')
+    } finally {
+      setDeletingReplyId(null)
+    }
+  }
+
+  const title = detail?.title || post.place
+  const badgeStatus = detail?.status || post.status
+  const badgeLabel = detail?.badge || post.badge
 
   return (
     <PageRoot>
       <Screen>
         <Ellipse src={ellipse} alt="" width="875" height="875" />
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
         <Header>
           <BackButton type="button" aria-label="캠퍼스톡으로 돌아가기" onClick={onBack}>
             <img src={backIcon} alt="" width="22" height="22" />
           </BackButton>
           <Heading>
-            <Title>{detail.title}</Title>
-            <DateText>{detail.date}</DateText>
+            <Title>{title}</Title>
+            <DateText>{detail?.date}</DateText>
           </Heading>
-          <Badge $tone={post.status}>{post.badge}</Badge>
+          <Badge $tone={badgeStatus}>{badgeLabel}</Badge>
         </Header>
         <Main>
-          <MessageCard>
-            <AuthorRow>
-              <Avatar>
-                <img src={avatarIcon} alt="" width="18.709" height="15.5" />
-              </Avatar>
-              <Author>{detail.author}</Author>
-            </AuthorRow>
-            <SectionLabel>{talkDummy.detailLabel}</SectionLabel>
-            <MessageBody>
-              {detail.lines.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-            </MessageBody>
-          </MessageCard>
-          <AnswerLabel>{talkDummy.answerLabel}</AnswerLabel>
-          {post.replies?.length ? (
-            <ReplyList>
-              {post.replies.map((reply, index) => (
-                <ReplyCard key={`${reply.time}-${index}`}>
-                  <ReplyText>{reply.text}</ReplyText>
-                  <ReplyTime>{reply.time}</ReplyTime>
-                </ReplyCard>
-              ))}
-            </ReplyList>
-          ) : (
-            <EmptyAnswer>
-              <EmptyLine>{talkDummy.answerEmpty[0]}</EmptyLine>
-              <EmptyLine $strong>{talkDummy.answerEmpty[1]}</EmptyLine>
-            </EmptyAnswer>
-          )}
+          {loading ? <LoadNote $muted>캠퍼스톡을 불러오고 있어요.</LoadNote> : null}
+          {loadError ? <LoadNote>{loadError}</LoadNote> : null}
+          {detail ? (
+            <>
+              <MessageCard>
+                <AuthorRow>
+                  <Avatar>
+                    <img src={avatarIcon} alt="" width="18.709" height="15.5" />
+                  </Avatar>
+                  <Author>{detail.author}</Author>
+                  {detail.sentByMe ? (
+                    <DeleteButton
+                      type="button"
+                      disabled={deleting}
+                      onClick={() => {
+                        setError('')
+                        setConfirming(true)
+                      }}
+                    >
+                      삭제
+                    </DeleteButton>
+                  ) : null}
+                </AuthorRow>
+                <SectionLabel>캠퍼스톡 내용</SectionLabel>
+                <MessageBody>
+                  {detail.lines.map((line) => (
+                    <div key={line}>{line}</div>
+                  ))}
+                </MessageBody>
+              </MessageCard>
+              <AnswerLabel>답변</AnswerLabel>
+              {detail.replies.length ? (
+                <ReplyList>
+                  {detail.replies.map((reply) => (
+                    <ReplyCard key={reply.replyId ?? `${reply.time}-${reply.text}`}>
+                      <ReplyText $deleted={reply.deleted}>
+                        {reply.author ? `${reply.author} · ${reply.text}` : reply.text}
+                      </ReplyText>
+                      <ReplySide>
+                        <ReplyTime>{reply.time}</ReplyTime>
+                        {reply.mine && !reply.deleted ? (
+                          <ReplyDelete
+                            type="button"
+                            disabled={deletingReplyId === reply.replyId}
+                            onClick={() => removeReply(reply.replyId)}
+                          >
+                            삭제
+                          </ReplyDelete>
+                        ) : null}
+                      </ReplySide>
+                    </ReplyCard>
+                  ))}
+                </ReplyList>
+              ) : (
+                <EmptyAnswer>
+                  <EmptyLine>아직 답변이 없어요</EmptyLine>
+                  <EmptyLine $strong>근처에 있다면 먼저 알려주세요</EmptyLine>
+                </EmptyAnswer>
+              )}
+            </>
+          ) : null}
         </Main>
-        <Sheet>
-          <BubbleList>
-            {talkDummy.replies.map((reply) => {
-              const on = selected === reply.id
-              return (
-                <Bubble
-                  key={reply.id}
-                  type="button"
-                  $width={reply.width}
-                  $on={on}
-                  aria-pressed={on}
-                  onClick={() => selectReply(reply)}
-                >
-                  {reply.label}
-                </Bubble>
-              )
-            })}
-          </BubbleList>
-          <Composer onSubmit={submit}>
-            <DraftInput
-              ref={inputRef}
-              value={draft}
-              placeholder={post.replies?.length ? detail.placeholder : ''}
-              aria-label="답변 입력"
-              onChange={(event) => setDraft(event.target.value)}
-            />
-            <SendButton type="submit" aria-label="답변 보내기">
-              <SendIcon src={replyButton} alt="" width="40" height="40" />
-            </SendButton>
-          </Composer>
-        </Sheet>
+        {detail ? (
+          <Sheet>
+            {error && !confirming ? <ReplyNote>{error}</ReplyNote> : null}
+            <BubbleList>
+              {suggestions.map((reply) => {
+                const on = selected === reply.id
+                return (
+                  <Bubble
+                    key={reply.id}
+                    type="button"
+                    $on={on}
+                    aria-pressed={on}
+                    onClick={() => selectReply(reply)}
+                  >
+                    {reply.label}
+                  </Bubble>
+                )
+              })}
+            </BubbleList>
+            <Composer onSubmit={submit}>
+              <DraftInput
+                ref={inputRef}
+                value={draft}
+                maxLength={300}
+                placeholder={detail.replies.length ? `${title} 연락에 답변하기` : ''}
+                aria-label="답변 입력"
+                onChange={(event) => {
+                  const next = event.target.value
+                  setDraft(next)
+                  const picked = suggestions.find((reply) => reply.id === selected)
+                  if (suggested && next !== (picked?.label ?? '')) setSuggested(false)
+                }}
+              />
+              <SendButton type="submit" aria-label="답변 보내기" disabled={sending}>
+                <SendIcon src={replyButton} alt="" width="40" height="40" />
+              </SendButton>
+            </Composer>
+          </Sheet>
+        ) : null}
+        {confirming ? (
+          <ConfirmLayer role="presentation" onClick={() => { if (!deleting) setConfirming(false) }}>
+            <ConfirmCard role="dialog" aria-modal="true" aria-labelledby="delete-talk-title" onClick={(event) => event.stopPropagation()}>
+              <ConfirmText id="delete-talk-title">삭제하시겠습니까?</ConfirmText>
+              {error ? <ReplyNote>{error}</ReplyNote> : null}
+              <ConfirmActions>
+                <ConfirmButton type="button" disabled={deleting} onClick={() => setConfirming(false)}>
+                  취소
+                </ConfirmButton>
+                <ConfirmButton type="button" $primary disabled={deleting} onClick={remove}>
+                  확인
+                </ConfirmButton>
+              </ConfirmActions>
+            </ConfirmCard>
+          </ConfirmLayer>
+        ) : null}
       </Screen>
     </PageRoot>
   )

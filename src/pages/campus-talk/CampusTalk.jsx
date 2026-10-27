@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import styled, { css } from 'styled-components'
+import { useEffect, useRef, useState } from 'react'
+import styled from 'styled-components'
 import Footer from '../../common/Footer/Footer.jsx'
-import talkDummy, { postsForZone } from '../../services/talkDummy.js'
+import { getTalkFilter, getTalks, mapTalkFilter, saveTalkFilter } from '../../api/campus-talk.js'
+import talkDummy from '../../services/talkDummy.js'
 import ZoneEdit from './ZoneEdit.jsx'
 import TalkSend from './TalkSend.jsx'
 import TalkDetail from './TalkDetail.jsx'
@@ -12,11 +13,6 @@ import ellipseD from '../../assets/images/bg-talk-ellipse-d.svg'
 import ellipseE from '../../assets/images/bg-talk-ellipse-e.svg'
 import arrowIcon from '../../assets/images/icon-inbox-arrow.svg'
 import sendIcon from '../../assets/images/icon-talk-send.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const badgeTones = {
   unread: { background: '#ffe3e3', color: '#fe7e7e' },
@@ -56,22 +52,6 @@ const Ellipse = styled.img`
   left: ${({ $left }) => $left};
   z-index: 0;
   pointer-events: none;
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const Main = styled.main`
@@ -167,6 +147,14 @@ const Chip = styled.span`
   color: #ffffff;
   font-size: 13px;
   font-weight: 600;
+`
+
+const FilterNote = styled.p`
+  margin: 8px 24px 0;
+  color: ${({ $muted }) => ($muted ? '#5f6a8f' : '#c93a24')};
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
 `
 
 const EditButton = styled.button`
@@ -334,52 +322,167 @@ const SendButton = styled.button`
   backdrop-filter: blur(12px);
 `
 
+const talkStatus = {
+  UNREAD: { id: 'unread', badge: '미확인' },
+  CHECKING: { id: 'checking', badge: '확인 중' },
+  ANSWERED: { id: 'answered', badge: '답변 완료' },
+}
+
+const statusQuery = {
+  unread: 'UNREAD',
+  checking: 'CHECKING',
+  answered: 'ANSWERED',
+}
+
+const tabLayout = [
+  { id: 'all', name: '전체', left: '33px', width: '54px' },
+  { id: 'unread', name: '미확인', left: '119px', width: '54px' },
+  { id: 'checking', name: '확인 중', left: '201px', width: '62px' },
+  { id: 'answered', name: '답변 완료', left: '291px', width: '62px' },
+]
+
+function relativeTime(createdAt) {
+  const diff = Date.now() - new Date(createdAt).getTime()
+  const minutes = Math.max(0, Math.round(diff / 60000))
+  if (!Number.isFinite(minutes) || minutes < 1) return '방금'
+  if (minutes < 60) return `${minutes}분 전`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}시간 전`
+  return `${Math.round(hours / 24)}일 전`
+}
+
+function mapTalk(item) {
+  const tone = talkStatus[item.status] ?? { id: 'unread', badge: item.status || '' }
+  return {
+    id: item.talkId,
+    talkId: item.talkId,
+    status: tone.id,
+    badge: tone.badge,
+    place: item.target ?? '',
+    body: item.preview ?? '',
+    time: relativeTime(item.createdAt),
+    sentByMe: Boolean(item.sentByMe),
+  }
+}
+
 function CampusTalk({ onNavigate }) {
   const [tab, setTab] = useState('all')
   const [editing, setEditing] = useState(false)
   const [sending, setSending] = useState(false)
-  const [selectedId, setSelectedId] = useState(null)
-  const [overrides, setOverrides] = useState({})
-  const [zone, setZone] = useState({ floors: [], rooms: [] })
-  const zonePosts = postsForZone(zone.floors, zone.rooms).map((item) => ({
-    ...item,
-    ...overrides[item.id],
-  }))
-  const posts = zonePosts.filter((item) => tab === 'all' || item.status === tab)
-  const selected = zonePosts.find((item) => item.id === selectedId)
+  const [selected, setSelected] = useState(null)
+  const [zone, setZone] = useState({ building: '', floors: [], rooms: [] })
+  const [filterError, setFilterError] = useState('')
+  const [posts, setPosts] = useState([])
+  const [counts, setCounts] = useState({ all: 0, unread: 0, checking: 0, answered: 0 })
+  const [listError, setListError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [reloadKey, setReloadKey] = useState(0)
+  const cursorRef = useRef(null)
+  const hasNextRef = useRef(false)
+  const loadingRef = useRef(false)
+  const requestRef = useRef(0)
+  const tabRef = useRef(tab)
   const chips = [
     ...zone.floors.map((floor) => `${floor}층`),
     ...zone.rooms.map((room) => `${room.id}호`),
   ]
+  const tabs = tabLayout.map((item) => ({
+    ...item,
+    label: `${item.name} ${counts[item.id] ?? 0}`,
+  }))
+
+  useEffect(() => {
+    let cancelled = false
+
+    getTalkFilter()
+      .then((payload) => {
+        if (cancelled) return
+        setZone(mapTalkFilter(payload.data))
+        setFilterError('')
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setFilterError(error.message || '연락 볼 구역을 불러오지 못했습니다.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function loadTalks(cursor, statusTab) {
+    if (cursor != null && loadingRef.current) return
+    const requestId = requestRef.current + 1
+    requestRef.current = requestId
+    loadingRef.current = true
+    setLoading(true)
+    try {
+      const payload = await getTalks({
+        status: statusQuery[statusTab],
+        cursor,
+      })
+      if (requestRef.current !== requestId) return
+      const data = payload.data ?? {}
+      const nextItems = (data.content ?? []).map(mapTalk)
+      setPosts((current) => (cursor != null ? [...current, ...nextItems] : nextItems))
+      hasNextRef.current = Boolean(data.hasNext && data.nextCursor != null)
+      cursorRef.current = data.hasNext ? data.nextCursor : null
+      if (cursor == null) {
+        setCounts(data.counts ?? { all: 0, unread: 0, checking: 0, answered: 0 })
+        setZone((current) => mapTalkFilter({
+          buildingId: current.buildingId,
+          building: data.building ?? current.building,
+          floors: data.filter ?? [],
+        }))
+      }
+      setListError('')
+    } catch (error) {
+      if (requestRef.current !== requestId) return
+      if (cursor == null) setPosts([])
+      setListError(error.message || '캠퍼스톡을 불러오지 못했습니다.')
+    } finally {
+      if (requestRef.current === requestId) {
+        loadingRef.current = false
+        setLoading(false)
+      }
+    }
+  }
+
+  useEffect(() => {
+    tabRef.current = tab
+    cursorRef.current = null
+    hasNextRef.current = false
+    setPosts([])
+    loadTalks(undefined, tab)
+  }, [tab, reloadKey])
 
   const openPost = (item) => {
-    if (item.status === 'unread') {
-      setOverrides((current) => ({
-        ...current,
-        [item.id]: { ...current[item.id], status: 'checking', badge: '확인 중' },
-      }))
-    }
-    setSelectedId(item.id)
+    setSelected(item)
   }
 
   if (selected) {
     return (
       <TalkDetail
         post={selected}
-        onBack={() => setSelectedId(null)}
+        onBack={() => setSelected(null)}
+        onLoaded={(next) => {
+          setSelected((current) => (
+            current ? { ...current, status: next.status, badge: next.badge } : current
+          ))
+          setReloadKey((key) => key + 1)
+        }}
         onReply={(reply) => {
-          setOverrides((current) => {
-            const previous = current[selected.id]?.replies ?? []
-            return {
-              ...current,
-              [selected.id]: {
-                ...current[selected.id],
-                status: 'answered',
-                badge: '답변 완료',
-                replies: [...previous, reply],
-              },
-            }
-          })
+          if (reply.talkStatus) {
+            const tone = talkStatus[reply.talkStatus] ?? { id: 'answered', badge: '답변 완료' }
+            setSelected((current) => (
+              current ? { ...current, status: tone.id, badge: tone.badge } : current
+            ))
+          }
+          setReloadKey((key) => key + 1)
+        }}
+        onDeleted={() => {
+          setSelected(null)
+          setReloadKey((key) => key + 1)
         }}
       />
     )
@@ -388,8 +491,12 @@ function CampusTalk({ onNavigate }) {
   if (sending) {
     return (
       <TalkSend
+        buildingId={zone.buildingId}
         onBack={() => setSending(false)}
-        onSend={() => setSending(false)}
+        onSend={() => {
+          setReloadKey((key) => key + 1)
+          setSending(false)
+        }}
       />
     )
   }
@@ -399,8 +506,11 @@ function CampusTalk({ onNavigate }) {
       <ZoneEdit
         zone={zone}
         onBack={() => setEditing(false)}
-        onSave={(next) => {
-          setZone(next)
+        onSave={async (next) => {
+          const payload = await saveTalkFilter(next)
+          setZone(mapTalkFilter(payload.data))
+          setFilterError('')
+          setReloadKey((key) => key + 1)
           setEditing(false)
         }}
       />
@@ -421,18 +531,18 @@ function CampusTalk({ onNavigate }) {
             $left={ellipse.left}
           />
         ))}
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
-        <Main>
+        <Main
+          onScroll={(event) => {
+            const node = event.currentTarget
+            const nearEnd = node.scrollHeight - node.scrollTop - node.clientHeight < 80
+            if (nearEnd && hasNextRef.current) loadTalks(cursorRef.current, tabRef.current)
+          }}
+        >
           <Header>
             <Title>{talkDummy.title}</Title>
-            <Building>{talkDummy.building}</Building>
+            <Building>{zone.building}</Building>
           </Header>
+          {filterError ? <FilterNote>{filterError}</FilterNote> : null}
           <ZoneBar>
             <ZoneLabel>{talkDummy.zone}</ZoneLabel>
             <ChipRow>
@@ -443,7 +553,7 @@ function CampusTalk({ onNavigate }) {
             <EditButton type="button" onClick={() => setEditing(true)}>{talkDummy.edit}</EditButton>
           </ZoneBar>
           <Tabs>
-            {talkDummy.tabs.map((item) => (
+            {tabs.map((item) => (
               <Tab
                 key={item.id}
                 type="button"
@@ -458,6 +568,8 @@ function CampusTalk({ onNavigate }) {
             ))}
           </Tabs>
           <List>
+            {listError ? <FilterNote>{listError}</FilterNote> : null}
+            {!loading && !listError && posts.length === 0 ? <FilterNote $muted>캠퍼스톡이 없어요</FilterNote> : null}
             {posts.map((item) => (
               <Card key={item.id}>
                 <Badge $tone={item.status}>

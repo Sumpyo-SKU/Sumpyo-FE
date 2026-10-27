@@ -8,11 +8,6 @@ import plusIcon from '../../assets/images/icon-threshold-plus.svg'
 import infoIcon from '../../assets/images/icon-threshold-info.svg'
 import chevronIcon from '../../assets/images/icon-threshold-chevron.svg'
 import knobIcon from '../../assets/images/icon-toggle-knob.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const MIN_PPM = 600
 const MAX_PPM = 1500
@@ -64,22 +59,6 @@ const Ellipse = styled.img`
     top: ${$top};
     left: ${$left};
   `}
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const BackButton = styled.button`
@@ -519,6 +498,14 @@ const SaveButton = styled.button`
   cursor: pointer;
 `
 
+const FormNote = styled.p`
+  margin: 16px 16px 0;
+  color: #c93a24;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
+
 const ResetButton = styled.button`
   display: block;
   margin: 14px auto 40px;
@@ -532,10 +519,11 @@ const ResetButton = styled.button`
   cursor: pointer;
 `
 
-function ThresholdPage({ saved, onBack, onSave }) {
+function ThresholdPage({ saved, onBack, onSave, onReset }) {
   const [ppm, setPpm] = useState(saved.ppm)
   const [fan, setFan] = useState(saved.fan)
   const [lead, setLead] = useState(saved.lead)
+  const [error, setError] = useState('')
   const caution = Math.round(ppm * 0.9)
   const severe = Math.round(ppm * 1.2)
 
@@ -548,13 +536,6 @@ function ThresholdPage({ saved, onBack, onSave }) {
       <Screen>
         <Ellipse src={ellipseBottom} alt="" width="875" height="875" $top="410px" $left="-252px" />
         <Ellipse src={ellipseTop} alt="" width="875" height="875" $top="-326px" $left="-35px" />
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
 
         <BackButton type="button" aria-label="설정으로 돌아가기" onClick={onBack}>
           <BackIcon src={backIcon} alt="" width="37" height="37" />
@@ -641,12 +622,12 @@ function ThresholdPage({ saved, onBack, onSave }) {
           <ClimatePanel>
             <ClimateRow>
               <ClimateLabel>적정 온도</ClimateLabel>
-              <ClimateValue>20 – 26°C</ClimateValue>
+              <ClimateValue>{saved.tempMin ?? 20} – {saved.tempMax ?? 26}°C</ClimateValue>
               <img src={chevronIcon} alt="" width="18" height="18" />
             </ClimateRow>
             <ClimateRow>
               <ClimateLabel>적정 습도</ClimateLabel>
-              <ClimateValue>40 – 60%</ClimateValue>
+              <ClimateValue>{saved.humidityMin ?? 40} – {saved.humidityMax ?? 60}%</ClimateValue>
               <img src={chevronIcon} alt="" width="18" height="18" />
             </ClimateRow>
           </ClimatePanel>
@@ -685,15 +666,32 @@ function ThresholdPage({ saved, onBack, onSave }) {
             </LeadGroup>
           </FanPanel>
 
-          <SaveButton type="button" onClick={() => onSave({ ppm, fan, lead })}>
+          {error ? <FormNote>{error}</FormNote> : null}
+          <SaveButton
+            type="button"
+            onClick={async () => {
+              try {
+                setError('')
+                await onSave({ ppm, fan, lead })
+              } catch (saveError) {
+                setError(saveError.message || '설정을 저장하지 못했습니다.')
+              }
+            }}
+          >
             저장하기
           </SaveButton>
           <ResetButton
             type="button"
-            onClick={() => {
-              setPpm(DEFAULTS.ppm)
-              setFan(DEFAULTS.fan)
-              setLead(DEFAULTS.lead)
+            onClick={async () => {
+              try {
+                setError('')
+                const next = await onReset()
+                setPpm(next?.ppm ?? DEFAULTS.ppm)
+                setFan(next?.fan ?? DEFAULTS.fan)
+                setLead(next?.lead ?? DEFAULTS.lead)
+              } catch (resetError) {
+                setError(resetError.message || '기본값으로 되돌리지 못했습니다.')
+              }
             }}
           >
             기본값으로 되돌리기

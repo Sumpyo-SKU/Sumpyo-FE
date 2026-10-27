@@ -1,15 +1,12 @@
-import styled, { css } from 'styled-components'
+import { useEffect, useRef, useState } from 'react'
+import styled from 'styled-components'
+import { getNotifications, markAllNotificationsRead, markNotificationRead } from '../../api/alertspage.js'
 import campusEllipse from '../../assets/images/bg-campus-ellipse.svg'
 import backIcon from '../../assets/images/icon-back.svg'
 import urgentIcon from '../../assets/images/icon-alert-urgent.svg'
 import soonIcon from '../../assets/images/icon-alert-soon.svg'
 import complaintIcon from '../../assets/images/icon-alert-complaint.svg'
 import sensorIcon from '../../assets/images/icon-setting-sensor.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const tones = {
   urgent: { icon: urgentIcon, background: '#fde9e5' },
@@ -44,22 +41,6 @@ const Ellipse = styled.img`
   pointer-events: none;
 `
 
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
-`
-
 const BackButton = styled.button`
   position: absolute;
   top: 69px;
@@ -87,6 +68,23 @@ const Title = styled.h1`
   letter-spacing: -0.4px;
 `
 
+const ReadAllButton = styled.button`
+  position: absolute;
+  top: 72px;
+  right: 16px;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #56a6f0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  cursor: pointer;
+`
+
 const List = styled.main`
   position: absolute;
   top: 112px;
@@ -112,11 +110,13 @@ const Items = styled.div`
   gap: 10px;
 `
 
-const Card = styled.article`
+const Card = styled.button`
   position: relative;
   display: flex;
   align-items: flex-start;
+  width: 100%;
   height: 73px;
+  margin: 0;
   padding: 14px 14px 0;
   border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: 16px;
@@ -126,6 +126,18 @@ const Card = styled.article`
     0 8px 32px rgba(60, 80, 160, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     inset 0 -1px 0 rgba(255, 255, 255, 0.3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  opacity: ${({ $read }) => ($read ? 0.55 : 1)};
+`
+
+const Note = styled.p`
+  margin: 0 0 10px 4px;
+  color: ${({ $muted }) => ($muted ? '#5f6a8f' : '#c93a24')};
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
 `
 
 const IconBadge = styled.span`
@@ -178,31 +190,134 @@ const ItemTime = styled.time`
   line-height: 19px;
 `
 
-function AlertsPage({ alerts, onBack }) {
+function alertTone(type) {
+  const value = String(type || '')
+  if (value.includes('SENSOR')) return 'sensor'
+  if (value.includes('COMPLAINT') || value.includes('REPEAT')) return 'complaint'
+  if (value.includes('SOON') || value.includes('PREDICT')) return 'soon'
+  return 'urgent'
+}
+
+function alertChannel(type) {
+  const tone = alertTone(type)
+  if (tone === 'sensor') return 'sensor'
+  if (tone === 'complaint') return 'complaint'
+  return 'ventilation'
+}
+
+function relativeTime(createdAt) {
+  if (!createdAt) return ''
+  const diff = Date.now() - new Date(createdAt).getTime()
+  const minutes = Math.max(0, Math.round(diff / 60000))
+  if (minutes < 1) return '방금'
+  if (minutes < 60) return `${minutes}분 전`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}시간 전`
+  return `${Math.round(hours / 24)}일 전`
+}
+
+function mapNotification(item) {
+  return {
+    id: item.notificationId,
+    notificationId: item.notificationId,
+    title: item.title,
+    body: item.body,
+    time: relativeTime(item.createdAt),
+    tone: alertTone(item.type),
+    channel: alertChannel(item.type),
+    read: Boolean(item.read),
+  }
+}
+
+function AlertsPage({ notice, onUnreadCount, onBack }) {
+  const [items, setItems] = useState([])
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const cursorRef = useRef(null)
+  const hasNextRef = useRef(false)
+  const loadingRef = useRef(false)
+
+  async function loadNotifications(cursor) {
+    if (loadingRef.current) return
+    loadingRef.current = true
+    setLoading(true)
+    try {
+      const payload = await getNotifications({ cursor })
+      const data = payload.data ?? {}
+      const nextItems = (data.content ?? []).map(mapNotification)
+      setItems((current) => (cursor ? [...current, ...nextItems] : nextItems))
+      hasNextRef.current = Boolean(data.hasNext && data.nextCursor)
+      cursorRef.current = data.hasNext ? data.nextCursor : null
+      if (!cursor && data.unreadCount != null) onUnreadCount?.(data.unreadCount)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || '알림을 불러오지 못했습니다.')
+    } finally {
+      loadingRef.current = false
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadNotifications()
+  }, [])
+
+  const visibleItems = items.filter((item) => notice?.[item.channel] !== false)
+
+  async function handleReadAll() {
+    try {
+      setError('')
+      await markAllNotificationsRead()
+      setItems((current) => current.map((item) => ({ ...item, read: true })))
+      onUnreadCount?.(0)
+    } catch (loadError) {
+      setError(loadError.message || '알림을 모두 읽음 처리하지 못했습니다.')
+    }
+  }
+
+  async function handleRead(item) {
+    if (item.read) return
+    try {
+      setError('')
+      const payload = await markNotificationRead(item.notificationId)
+      const readId = payload.data?.notificationId ?? item.notificationId
+      setItems((current) => current.map((entry) => (
+        String(entry.notificationId) === String(readId) ? { ...entry, read: true } : entry
+      )))
+      onUnreadCount?.()
+    } catch (loadError) {
+      setError(loadError.message || '알림을 읽음 처리하지 못했습니다.')
+    }
+  }
+
   return (
     <PageRoot>
       <Screen>
         <Ellipse src={campusEllipse} alt="" width="875" height="875" />
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
 
         <BackButton type="button" aria-label="홈으로 돌아가기" onClick={onBack}>
           <img src={backIcon} alt="" width="22" height="22" />
         </BackButton>
-        <Title>{alerts.title}</Title>
+        <Title>환기 알림</Title>
+        <ReadAllButton type="button" onClick={handleReadAll}>
+          모두 읽음
+        </ReadAllButton>
 
-        <List>
-          <SectionLabel>{alerts.sectionLabel}</SectionLabel>
+        <List
+          onScroll={(event) => {
+            const node = event.currentTarget
+            const nearEnd = node.scrollHeight - node.scrollTop - node.clientHeight < 80
+            if (nearEnd && hasNextRef.current) loadNotifications(cursorRef.current)
+          }}
+        >
+          <SectionLabel>최근 7일</SectionLabel>
+          {error ? <Note>{error}</Note> : null}
+          {!loading && visibleItems.length === 0 ? <Note $muted>최근 7일 알림이 없어요</Note> : null}
           <Items>
-            {alerts.items.map((item) => {
+            {visibleItems.map((item) => {
               const tone = tones[item.tone] ?? tones.complaint
               return (
-                <Card key={item.id}>
+                <Card key={item.id} type="button" $read={item.read} onClick={() => handleRead(item)}>
                   <IconBadge $background={tone.background}>
                     <img src={tone.icon} alt="" width={item.tone === 'sensor' ? '19.8333' : '18'} height={item.tone === 'sensor' ? '19.8333' : '18'} />
                   </IconBadge>

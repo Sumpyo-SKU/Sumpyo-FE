@@ -1,13 +1,9 @@
-import { useState } from 'react'
-import styled, { css } from 'styled-components'
-import talkDummy from '../../services/talkDummy.js'
+import { useEffect, useState } from 'react'
+import styled from 'styled-components'
+import { createTalk } from '../../api/campus-talk.js'
+import { getBuildings, getFloorPlan } from '../../api/campus-status.js'
 import ellipse from '../../assets/images/bg-edit-ellipse.svg'
 import backIcon from '../../assets/images/icon-back.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const PageRoot = styled.div`
   display: flex;
@@ -33,22 +29,6 @@ const Ellipse = styled.img`
   left: -252px;
   z-index: 0;
   pointer-events: none;
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const Header = styled.header`
@@ -195,41 +175,139 @@ const SubmitButton = styled.button`
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
 `
 
-function toggleValue(current, value) {
-  return current.includes(value)
-    ? current.filter((item) => item !== value)
-    : [...current, value]
+const Note = styled.p`
+  margin: 12px 0 0;
+  color: ${({ $muted }) => ($muted ? '#5f6a8f' : '#c93a24')};
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
+
+const phrases = [
+  { id: 'here', text: '북악관 1층에 계신 분 있나요?', width: 228 },
+  { id: 'check', text: 'OO호에 사람 있는지 확인해주실 수 있나요?', width: 298 },
+  { id: 'class', text: 'OO호 지금 수업 중인가요?', width: 210 },
+  { id: 'window', text: '창문 확인 필요', width: 142 },
+  { id: 'ac', text: '에어컨 확인 필요', width: 159 },
+]
+
+function lectureRooms(plan) {
+  return (plan?.rooms ?? [])
+    .filter((room) => room.type === 'LECTURE')
+    .sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
 }
 
-function TalkSend({ onBack, onSend }) {
-  const [floors, setFloors] = useState([])
-  const [rooms, setRooms] = useState([])
-  const [phrases, setPhrases] = useState([])
+function TalkSend({ buildingId, onBack, onSend }) {
+  const [floorOptions, setFloorOptions] = useState([])
+  const [floor, setFloor] = useState(null)
+  const [roomChoices, setRoomChoices] = useState([])
+  const [roomsLoading, setRoomsLoading] = useState(false)
+  const [room, setRoom] = useState(null)
+  const [phraseId, setPhraseId] = useState(null)
   const [note, setNote] = useState('')
+  const [error, setError] = useState('')
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    getBuildings()
+      .then((payload) => {
+        if (cancelled) return
+        const building = (payload.data ?? []).find((item) => item.buildingId === buildingId)
+        const maxFloor = building?.maxFloor ?? 0
+        setFloorOptions(Array.from({ length: maxFloor }, (_, index) => index + 1))
+      })
+      .catch((loadError) => {
+        if (cancelled) return
+        setError(loadError.message || '건물 정보를 불러오지 못했습니다.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [buildingId])
+
+  useEffect(() => {
+    if (!buildingId || floor == null) return undefined
+    let cancelled = false
+    setRoomsLoading(true)
+    setRoomChoices([])
+
+    getFloorPlan(buildingId, floor)
+      .then((payload) => {
+        if (cancelled) return
+        setRoomChoices(lectureRooms(payload.data))
+      })
+      .catch((loadError) => {
+        if (cancelled) return
+        setError(loadError.message || '강의실을 불러오지 못했습니다.')
+      })
+      .finally(() => {
+        if (!cancelled) setRoomsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [buildingId, floor])
+
+  const selectFloor = (next) => {
+    setFloor((current) => (current === next ? null : next))
+    setRoom(null)
+  }
+
+  const selectRoom = (next) => {
+    setRoom((current) => (current?.roomId === next.roomId ? null : next))
+  }
 
   const selectPhrase = (phrase) => {
-    const selected = phrases.includes(phrase.id)
-    setPhrases((current) => toggleValue(current, phrase.id))
-    if (selected) {
+    if (phraseId === phrase.id) {
+      setPhraseId(null)
       if (note === phrase.text) setNote('')
       return
     }
+    setPhraseId(phrase.id)
     setNote(phrase.text)
+  }
+
+  const submit = async () => {
+    const content = note.trim()
+    if (floor == null) {
+      setError('층을 선택해 주세요.')
+      return
+    }
+    if (content.length < 1 || content.length > 300) {
+      setError('내용은 1~300자로 입력해주세요.')
+      return
+    }
+
+    setSending(true)
+    setError('')
+    try {
+      const payload = await createTalk({
+        floor,
+        roomId: room?.roomId,
+        content,
+      })
+      onSend(payload.data)
+    } catch (sendError) {
+      setError(sendError.message || '캠퍼스톡을 보내지 못했습니다.')
+      setSending(false)
+    }
   }
 
   return (
     <PageRoot>
       <Screen>
         <Ellipse src={ellipse} alt="" width="875" height="875" />
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
         <Header>
           <BackButton type="button" aria-label="캠퍼스톡으로 돌아가기" onClick={onBack}>
             <img src={backIcon} alt="" width="22" height="22" />
@@ -237,71 +315,69 @@ function TalkSend({ onBack, onSend }) {
         </Header>
         <Main>
           <Card>
-            <CardTitle>{talkDummy.sendFloorTitle}</CardTitle>
+            <CardTitle>1. 연락 보낼 층을 선택해 주세요. (필수)</CardTitle>
+            {floorOptions.length === 0 && !error ? <Note $muted>층을 불러오고 있어요.</Note> : null}
             <FloorGrid>
-              {talkDummy.floors.map((floor) => {
-                const on = floors.includes(floor)
-                return (
-                  <Choice
-                    key={floor}
-                    type="button"
-                    $on={on}
-                    aria-pressed={on}
-                    onClick={() => setFloors((current) => toggleValue(current, floor))}
-                  >
-                    {floor}층
-                  </Choice>
-                )
-              })}
+              {floorOptions.map((item) => (
+                <Choice
+                  key={item}
+                  type="button"
+                  $on={floor === item}
+                  aria-pressed={floor === item}
+                  onClick={() => selectFloor(item)}
+                >
+                  {item}층
+                </Choice>
+              ))}
             </FloorGrid>
           </Card>
           <Card>
-            <CardTitle>{talkDummy.sendRoomTitle}</CardTitle>
-            <RoomGrid>
-              {talkDummy.sendRooms.map((id) => {
-                const on = rooms.includes(id)
-                return (
+            <CardTitle>2. 강의실을 선택해 주세요. (선택)</CardTitle>
+            {floor == null ? <Note $muted>층을 먼저 선택해 주세요.</Note> : null}
+            {floor != null && roomsLoading ? <Note $muted>강의실을 불러오고 있어요.</Note> : null}
+            {floor != null && !roomsLoading ? (
+              <RoomGrid>
+                {roomChoices.map((item) => (
                   <Choice
-                    key={id}
+                    key={item.roomId}
                     type="button"
                     $room
-                    $on={on}
-                    aria-pressed={on}
-                    onClick={() => setRooms((current) => toggleValue(current, id))}
+                    $on={room?.roomId === item.roomId}
+                    aria-pressed={room?.roomId === item.roomId}
+                    onClick={() => selectRoom(item)}
                   >
-                    {id}
+                    {item.number}
                   </Choice>
-                )
-              })}
-            </RoomGrid>
+                ))}
+              </RoomGrid>
+            ) : null}
           </Card>
           <Card>
-            <CardTitle>{talkDummy.sendNoteTitle}</CardTitle>
+            <CardTitle>3. 특이 사항을 입력해 주세요.</CardTitle>
             <NoteField
               value={note}
-              aria-label={talkDummy.sendNoteTitle}
+              maxLength={300}
+              aria-label="특이 사항을 입력해 주세요."
               onChange={(event) => setNote(event.target.value)}
             />
+            {error ? <Note>{error}</Note> : null}
           </Card>
           <Phrases>
-            {talkDummy.sendPhrases.map((phrase) => {
-              const on = phrases.includes(phrase.id)
-              return (
-                <Phrase
-                  key={phrase.id}
-                  type="button"
-                  $width={phrase.width}
-                  $on={on}
-                  aria-pressed={on}
-                  onClick={() => selectPhrase(phrase)}
-                >
-                  {phrase.text}
-                </Phrase>
-              )
-            })}
+            {phrases.map((phrase) => (
+              <Phrase
+                key={phrase.id}
+                type="button"
+                $width={phrase.width}
+                $on={phraseId === phrase.id}
+                aria-pressed={phraseId === phrase.id}
+                onClick={() => selectPhrase(phrase)}
+              >
+                {phrase.text}
+              </Phrase>
+            ))}
           </Phrases>
-          <SubmitButton type="button" onClick={onSend}>
-            {talkDummy.sendSubmit}
+          <SubmitButton type="button" disabled={sending} onClick={submit}>
+            캠퍼스톡 보내기
           </SubmitButton>
         </Main>
       </Screen>

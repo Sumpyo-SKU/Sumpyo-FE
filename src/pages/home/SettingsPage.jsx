@@ -14,11 +14,6 @@ import lineIcon from '../../assets/images/icon-settings-line.svg'
 import zoneIcon from '../../assets/images/icon-zone-building.svg'
 import readingCat from '../../assets/images/settings-reading-cat.png'
 import knobIcon from '../../assets/images/icon-toggle-knob.svg'
-import statusTime from '../../assets/images/status-time.svg'
-import statusSignal from '../../assets/images/status-signal.svg'
-import statusWifi from '../../assets/images/status-wifi.svg'
-import statusBattery from '../../assets/images/status-battery.svg'
-import statusIndicator from '../../assets/images/status-indicator.svg'
 
 const noticeRows = [
   { key: 'ventilation', label: '환기 알림', icon: ventIcon, width: '22', height: '22' },
@@ -56,22 +51,6 @@ const Ellipse = styled.img`
     top: ${$top};
     left: ${$left};
   `}
-`
-
-const StatusBar = styled.div`
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  width: 390px;
-  height: 45px;
-`
-
-const StatusIcon = styled.img`
-  position: absolute;
-  top: ${({ $top }) => $top};
-  ${({ $left }) => $left && css`left: ${$left};`}
-  ${({ $right }) => $right && css`right: ${$right};`}
 `
 
 const BackButton = styled.button`
@@ -234,25 +213,27 @@ const ReadingCat = styled.img`
   pointer-events: none;
 `
 
-function SettingsPage({ notice, ppm, onToggle, onBack, onOpenThreshold, onOpenZones }) {
+const SettingsNote = styled.p`
+  margin: 0 21px 12px;
+  color: #c93a24;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+`
+
+function SettingsPage({ notice, ppm, error, onToggle, onBack, onOpenThreshold, onOpenZones, onOpenQr }) {
   return (
     <PageRoot>
       <Screen>
         <Ellipse src={ellipseBottom} alt="" width="875" height="875" $top="410px" $left="-252px" />
         <Ellipse src={ellipseTop} alt="" width="875" height="875" $top="-326px" $left="-35px" />
-        <StatusBar aria-hidden="true">
-          <StatusIcon src={statusTime} alt="" width="33" height="15" $top="15px" $left="31px" />
-          <StatusIcon src={statusIndicator} alt="" width="6" height="6" $top="8px" $right="71px" />
-          <StatusIcon src={statusSignal} alt="" width="20" height="14" $top="16px" $right="63px" />
-          <StatusIcon src={statusWifi} alt="" width="16" height="14" $top="16px" $right="43px" />
-          <StatusIcon src={statusBattery} alt="" width="25" height="14" $top="16px" $right="14px" />
-        </StatusBar>
 
         <BackButton type="button" aria-label="홈으로 돌아가기" onClick={onBack}>
           <BackIcon src={backIcon} alt="" width="37" height="37" />
         </BackButton>
 
         <Content>
+          {error ? <SettingsNote>{error}</SettingsNote> : null}
           <Section>
             <SectionTitle>알림 설정</SectionTitle>
             <Card>
@@ -284,11 +265,11 @@ function SettingsPage({ notice, ppm, onToggle, onBack, onOpenThreshold, onOpenZo
             <SectionTitle>관리 설정</SectionTitle>
             <Card>
               <Rows>
-                <Row>
+                <RowButton type="button" onClick={onOpenQr}>
                   <TileIcon src={qrIcon} width="18" height="18" />
-                  <Label>민원 QR 코드 발급</Label>
+                  <Label>접수 QR 코드 발급</Label>
                   <img src={chevronIcon} alt="" width="20" height="20" />
-                </Row>
+                </RowButton>
                 <Line src={lineIcon} alt="" width="358" height="1" />
                 <RowButton type="button" onClick={onOpenThreshold}>
                   <TileIcon src={gearIcon} width="13.4167" height="13.4167" />
