@@ -11,11 +11,21 @@
 
 const baseURL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
+function authHeader() {
+  try {
+    const token = localStorage.getItem('sumpyo-access-token')
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch {
+    return {}
+  }
+}
+
 async function request(method, path, { headers, body, responseType } = {}) {
   const response = await fetch(`${baseURL}${path}`, {
     method,
     headers: {
       Accept: 'application/json',
+      ...authHeader(),
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
     },
