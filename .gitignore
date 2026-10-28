@@ -31,3 +31,5 @@ dist-ssr
 # 브라우저 임시 데이터 제외
 .chrome-onboard/
 chrome-onboard/
+# Local Netlify folder
+.netlify

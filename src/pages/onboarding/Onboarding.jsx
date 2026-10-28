@@ -9,6 +9,7 @@ import bubbleImage from '../../assets/images/onboarding-bubble.png'
 import runImage from '../../assets/images/onboarding-run.png'
 import pinIcon from '../../assets/images/onboarding-pin.svg'
 import checkIcon from '../../assets/images/onboarding-check.svg'
+import { LoginPage, SignupPage } from './Auth.jsx'
 
 const buildings = [
   ['대일관', '문예관', '본관'],
@@ -594,14 +595,14 @@ function ReadyPage({ label, onDone }) {
   )
 }
 
-function Onboarding({ onDone }) {
-  const [step, setStep] = useState('flash')
+function Onboarding({ onDone, onAuthenticated, initialStep = 'flash' }) {
+  const [step, setStep] = useState(initialStep)
   const [building, setBuilding] = useState(null)
   const [selectedFloors, setSelectedFloors] = useState([])
 
   useEffect(() => {
     if (step !== 'flash') return undefined
-    const timer = setTimeout(() => setStep('role'), 2000)
+    const timer = setTimeout(() => setStep('login'), 2000)
     return () => clearTimeout(timer)
   }, [step])
 
@@ -634,6 +635,23 @@ function Onboarding({ onDone }) {
               ))}
             </BubbleStage>
           </>
+        )}
+        {step === 'login' && (
+          <LoginPage
+            onSignup={() => setStep('signup')}
+            onSuccess={(session) => {
+              if (session?.hasZones) onAuthenticated(session)
+              else setStep('role')
+            }}
+          />
+        )}
+        {step === 'signup' && (
+          <SignupPage
+            onDone={(session) => {
+              if (session?.hasZones) onAuthenticated(session)
+              else setStep('role')
+            }}
+          />
         )}
         {step === 'role' && (
           <Main>
