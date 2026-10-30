@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import styled from 'styled-components'
 import Footer from '../../common/Footer/Footer.jsx'
 import { completeComplaintStep, getComplaint, recommendComplaint, startComplaintAction } from '../../api/inbox.js'
@@ -12,21 +12,44 @@ import checkIcon from '../../assets/images/icon-check.svg'
 import checkSmallIcon from '../../assets/images/icon-check-small.svg'
 
 const PageRoot = styled.div`
+  position: relative;
   display: flex;
   justify-content: center;
   width: 100%;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   background: #f0f8ff;
   color: #161a2b;
   font-family: 'Noto Sans KR', sans-serif;
 `
 
 const Screen = styled.div`
+  width: 390px;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #f0f8ff;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+`
+
+const Sheet = styled.div`
   position: relative;
   width: 390px;
-  min-height: max(844px, 100dvh);
-  overflow: hidden;
-  background: #f0f8ff;
+  min-height: ${({ $extra }) => `max(844px, 100dvh, ${860 + ($extra || 0)}px)`};
+`
+
+const MenuDock = styled.div`
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
 `
 
 const Ellipse = styled.img`
@@ -79,7 +102,7 @@ const Glass = styled.section`
 
 const ComplaintCard = styled(Glass)`
   top: 115px;
-  height: 203px;
+  height: ${({ $shift }) => 203 + ($shift || 0)}px;
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.8);
 `
@@ -98,7 +121,8 @@ const Place = styled.h2`
   color: #263e50;
   font-size: 17px;
   font-weight: 600;
-  line-height: 1;
+  line-height: ${({ $wrap }) => ($wrap ? '21px' : '1')};
+  white-space: pre-line;
 `
 
 const badgeTones = {
@@ -129,7 +153,7 @@ const Badge = styled.span`
 
 const SubmittedAt = styled.p`
   position: absolute;
-  top: 48px;
+  top: ${({ $shift }) => 48 + ($shift || 0)}px;
   left: 20px;
   margin: 0;
   color: #263e50;
@@ -138,7 +162,7 @@ const SubmittedAt = styled.p`
 
 const ContentLabel = styled.p`
   position: absolute;
-  top: 90px;
+  top: ${({ $shift }) => 90 + ($shift || 0)}px;
   left: 20px;
   margin: 0;
   color: rgba(38, 62, 80, 0.7);
@@ -148,7 +172,7 @@ const ContentLabel = styled.p`
 
 const Quote = styled.p`
   position: absolute;
-  top: 115px;
+  top: ${({ $shift }) => 115 + ($shift || 0)}px;
   left: 16px;
   display: flex;
   align-items: center;
@@ -164,7 +188,7 @@ const Quote = styled.p`
 `
 
 const AirCard = styled(Glass)`
-  top: 330px;
+  top: ${({ $shift }) => 330 + ($shift || 0)}px;
   height: 206px;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.5);
@@ -295,9 +319,9 @@ const MetricNote = styled.span`
 `
 
 const AdviceCard = styled(Glass)`
-  top: 548px;
+  top: ${({ $shift }) => 548 + ($shift || 0)}px;
   z-index: 5;
-  height: ${({ $tall }) => ($tall ? 'auto' : '192px')};
+  height: ${({ $tall, $extra }) => ($tall ? 'auto' : `${192 + ($extra || 0)}px`)};
   min-height: 192px;
   padding-bottom: ${({ $tall }) => ($tall ? '16px' : '0')};
   border-radius: 24px;
@@ -348,7 +372,7 @@ const AdviceText = styled.p`
 
 const Effect = styled.p`
   position: absolute;
-  top: 80px;
+  top: ${({ $offset }) => 80 + ($offset || 0)}px;
   left: 14px;
   display: flex;
   align-items: center;
@@ -369,7 +393,7 @@ const EffectValue = styled.span`
 
 const OtherButton = styled.button`
   position: absolute;
-  top: 129px;
+  top: ${({ $offset }) => 129 + ($offset || 0)}px;
   left: 14px;
   display: flex;
   align-items: center;
@@ -413,7 +437,7 @@ const RedoImage = styled.img`
 
 const StartButton = styled.button`
   position: absolute;
-  top: 129px;
+  top: ${({ $offset }) => 129 + ($offset || 0)}px;
   left: 142px;
   width: 202px;
   height: 50px;
@@ -745,6 +769,8 @@ function ComplaintDetail({ complaint, onBack, onNavigate, onStatus }) {
   const [record, setRecord] = useState(null)
   const [detailError, setDetailError] = useState('')
   const [detailLoading, setDetailLoading] = useState(!legacy && complaint.complaintId != null)
+  const summaryRef = useRef(null)
+  const [summaryExtra, setSummaryExtra] = useState(0)
 
   const loadRecommendation = async (retry) => {
     setRecommending(true)
@@ -895,20 +921,44 @@ function ComplaintDetail({ complaint, onBack, onNavigate, onStatus }) {
 
   const title = legacy?.title ?? '학생 접수 상세'
   const contentLabel = legacy?.contentLabel ?? '민원 내용'
-  const categories = (record?.categoryLabels ?? []).filter(Boolean).join(' · ')
-  const place = record
-    ? (categories ? `${record.room ?? ''} · ${categories}` : (record.room || complaint.place))
+  const labels = (record?.categoryLabels ?? complaint.categoryLabels ?? []).filter(Boolean)
+  const room = record?.room ?? complaint.room ?? ''
+  const categoryLineCount = labels.length >= 2 ? Math.ceil(labels.length / 3) : 0
+  const categoryLines = []
+  if (categoryLineCount) {
+    for (let index = 0; index < labels.length; index += 3) {
+      categoryLines.push(labels.slice(index, index + 3).join(' · '))
+    }
+  }
+  const place = labels.length || room
+    ? (categoryLineCount
+      ? [room, ...categoryLines].filter(Boolean).join('\n')
+      : (labels.length ? `${room} · ${labels.join(' · ')}` : (room || complaint.place)))
     : complaint.place
+  const layoutShift = categoryLineCount * 21
+  const titleShift = categoryLineCount ? layoutShift + 7 : 0
   const content = legacy?.content ?? record?.content ?? complaint.body
   const when = legacy?.submittedAt ?? submittedAt(record?.createdAt ?? complaint.createdAt)
   const snapshot = record?.snapshot
   const severity = snapshot ? snapshotSeverity(snapshot) : null
   const phaseTitles = { received: 'AI 추천 조치', progress: '조치 진행 중', done: '조치 완료' }
   const adviceTitle = legacy?.[adviceTitles[phase]] ?? phaseTitles[phase] ?? 'AI 추천 조치'
+  const textOffset = phase === 'received' ? summaryExtra : 0
+
+  useLayoutEffect(() => {
+    const node = summaryRef.current
+    if (!node || phase !== 'received') {
+      setSummaryExtra(0)
+      return
+    }
+    const extra = Math.max(0, Math.ceil(node.getBoundingClientRect().height - 23))
+    setSummaryExtra((current) => (current === extra ? current : extra))
+  }, [phase, recommendation?.summary, recommendError, detailError, detailLoading, startError, legacy])
 
   return (
     <PageRoot>
       <Screen>
+        <Sheet $extra={textOffset + layoutShift}>
         <Ellipse src={ellipse} alt="" width="875" height="875" />
 
         <Header>
@@ -918,17 +968,17 @@ function ComplaintDetail({ complaint, onBack, onNavigate, onStatus }) {
           <Title>{title}</Title>
         </Header>
 
-        <ComplaintCard aria-label={place}>
+        <ComplaintCard $shift={layoutShift} aria-label={place}>
           <Megaphone src={megaphoneIcon} alt="" width="24" height="24" />
-          <Place>{place}</Place>
+          {detailLoading && !legacy ? null : <Place $wrap={categoryLineCount > 0}>{place}</Place>}
           <Badge $tone={phase}>{badgeTones[phase].label}</Badge>
-          <SubmittedAt>{when}</SubmittedAt>
-          <ContentLabel>{contentLabel}</ContentLabel>
-          <Quote>{content}</Quote>
+          <SubmittedAt $shift={titleShift}>{when}</SubmittedAt>
+          <ContentLabel $shift={titleShift}>{contentLabel}</ContentLabel>
+          <Quote $shift={layoutShift}>{detailLoading && !legacy ? '' : content}</Quote>
         </ComplaintCard>
 
         {legacy ? (
-        <AirCard aria-label={legacy.co2Label}>
+        <AirCard $shift={layoutShift} aria-label={legacy.co2Label}>
           <AirLabel>{legacy.co2Label}</AirLabel>
           <Co2Value>
             {legacy.co2}
@@ -965,7 +1015,7 @@ function ComplaintDetail({ complaint, onBack, onNavigate, onStatus }) {
         </AirCard>
         ) : null}
         {snapshot ? (
-          <AirCard aria-label="접수 시점 CO₂">
+          <AirCard $shift={layoutShift} aria-label="접수 시점 CO₂">
             <AirLabel>접수 시점 CO₂</AirLabel>
             <Co2Value>
               {formatMeasure(snapshot.co2)}
@@ -1003,57 +1053,57 @@ function ComplaintDetail({ complaint, onBack, onNavigate, onStatus }) {
         ) : null}
 
         {(legacy || (!complaint.local && (phase === 'received' || phase === 'progress' || phase === 'done'))) ? (
-        <AdviceCard $tall={phase === 'progress' && !legacy} aria-label={adviceTitle}>
+        <AdviceCard $tall={phase === 'progress' && !legacy} $extra={textOffset} $shift={layoutShift} aria-label={adviceTitle}>
           <Spark>
             <SparkMain src={sparkIcon} alt="" width="13.4484" height="13.7817" />
             <SparkSmall src={sparkSmallIcon} alt="" width="5.44842" height="5.89842" />
           </Spark>
           <AdviceTitle>{adviceTitle}</AdviceTitle>
-          {detailError && !legacy ? <AdviceText>{detailError}</AdviceText> : null}
-          {detailLoading && !legacy ? <AdviceText>민원을 불러오고 있어요.</AdviceText> : null}
+          {detailError && !legacy ? <AdviceText ref={summaryRef}>{detailError}</AdviceText> : null}
+          {detailLoading && !legacy ? <AdviceText ref={summaryRef}>민원을 불러오고 있어요.</AdviceText> : null}
           {phase === 'received' && legacy && (
             <>
-              <AdviceText>{legacy.aiAction}</AdviceText>
-              <Effect>
+              <AdviceText ref={summaryRef}>{legacy.aiAction}</AdviceText>
+              <Effect $offset={textOffset}>
                 {legacy.effectLabel}
                 <EffectValue>{legacy.effect}</EffectValue>
               </Effect>
-              <OtherButton type="button">
+              <OtherButton type="button" $offset={textOffset}>
                 <RedoIcon>
                   <RedoImage src={redoIcon} alt="" width="16.5" height="16.5" />
                 </RedoIcon>
                 {legacy.other}
               </OtherButton>
-              <StartButton type="button" onClick={start}>
+              <StartButton type="button" $offset={textOffset} onClick={start}>
                 {legacy.start}
               </StartButton>
             </>
           )}
           {phase === 'received' && !legacy && !detailLoading && (
             <>
-              {recommending && !recommendation ? <AdviceText>추천을 불러오고 있어요.</AdviceText> : null}
-              {!recommendation && recommendError ? <AdviceText>{recommendError}</AdviceText> : null}
+              {recommending && !recommendation ? <AdviceText ref={summaryRef}>추천을 불러오고 있어요.</AdviceText> : null}
+              {!recommendation && recommendError ? <AdviceText ref={summaryRef}>{recommendError}</AdviceText> : null}
               {recommendation ? (
                 <>
-                  <AdviceText>{recommendation.summary}</AdviceText>
+                  <AdviceText ref={summaryRef}>{recommendation.summary}</AdviceText>
                   {recommendError ? (
-                    <Effect $error>{recommendError}</Effect>
+                    <Effect $error $offset={textOffset}>{recommendError}</Effect>
                   ) : effectText(recommendation) ? (
-                    <Effect>
+                    <Effect $offset={textOffset}>
                       예상 효과
                       <EffectValue>{effectText(recommendation)}</EffectValue>
                     </Effect>
                   ) : null}
                 </>
               ) : null}
-              <OtherButton type="button" disabled={recommending} onClick={() => loadRecommendation(true)}>
+              <OtherButton type="button" $offset={textOffset} disabled={recommending} onClick={() => loadRecommendation(true)}>
                 <RedoIcon>
                   <RedoImage src={redoIcon} alt="" width="16.5" height="16.5" />
                 </RedoIcon>
                 {recommending ? '찾는 중' : '다른 방법'}
               </OtherButton>
               {startError ? <AdviceText>{startError}</AdviceText> : null}
-              <StartButton type="button" disabled={starting || !recommendation?.actionId} onClick={begin}>
+              <StartButton type="button" $offset={textOffset} disabled={starting || !recommendation?.actionId} onClick={begin}>
                 추천대로 처리 시작
               </StartButton>
             </>
@@ -1159,8 +1209,11 @@ function ComplaintDetail({ complaint, onBack, onNavigate, onStatus }) {
         </AdviceCard>
         ) : null}
 
-        <Footer active="inbox" onNavigate={onNavigate} />
+        </Sheet>
       </Screen>
+      <MenuDock>
+        <Footer active="inbox" onNavigate={onNavigate} />
+      </MenuDock>
     </PageRoot>
   )
 }

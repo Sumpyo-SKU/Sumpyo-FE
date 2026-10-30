@@ -81,7 +81,7 @@ export function createTalkReply(talkId, { content, isSuggested } = {}, { demoLog
   }, { headers })
 }
 
-// 캠퍼스톡 상세. 다른 사람이 처음 열면 미확인이 확인 중으로 바뀐다. 추천 답변은 저장된 것을 가져오고, 보낸 사람에게는 비어 있다.
+// 캠퍼스톡 상세. 다른 근로생이 처음 열면 미확인이 확인 중으로 바뀌고, 추천 답변은 저장된 것을 쓰거나 없으면 바로 만든다. 글쓴이는 sender의 이름과 담당 구역이다. 보낸 사람에게는 추천 답변이 비어 있다. 담당 구역이 없으면 400, 로그인이 없으면 401, 내 건물이 아니면 403, 없는 글은 404다.
 export function getTalkDetail(talkId, { demoLogin } = {}) {
   if (talkId === undefined || talkId === null || talkId === '') {
     throw new Error('캠퍼스톡 ID가 필요합니다.')

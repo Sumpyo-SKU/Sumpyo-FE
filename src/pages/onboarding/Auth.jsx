@@ -168,7 +168,7 @@ export function LoginPage({ onSignup, onSuccess }) {
     try {
       const payload = await login({ loginId: id.trim(), password })
       saveAuthSession(payload.data)
-      onSuccess(payload.data ?? {})
+      await onSuccess(payload.data ?? {})
     } catch (error) {
       setError(`*${(error.message || '로그인에 실패했습니다.').replace(/^\*/, '')}`)
     } finally {

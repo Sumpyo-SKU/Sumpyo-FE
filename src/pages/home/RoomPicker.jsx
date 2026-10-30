@@ -29,8 +29,7 @@ const Panel = styled.div`
 
 const List = styled.div`
   height: 100%;
-  /* 선택한 강의실을 목록 맨 위까지 스크롤할 수 있게 아래 여백을 둡니다. */
-  padding: 3px 3px 116px;
+  padding: 3px;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: none;

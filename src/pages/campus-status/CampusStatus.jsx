@@ -4,7 +4,7 @@ import Footer from '../../common/Footer/Footer.jsx'
 import FloorPlan from './FloorPlan.jsx'
 import RoomDetailCard from './RoomDetailCard.jsx'
 import RoomDetailPage from './RoomDetailPage.jsx'
-import { checkAction, getBuildings, getFloorPlan, getRoomDetail, roomAirStatus, startAction } from '../../api/campus-status.js'
+import { getBuildings, getFloorPlan, getRoomDetail, roomAirStatus } from '../../api/campus-status.js'
 import campusEllipse from '../../assets/images/bg-campus-ellipse.svg'
 import chevronIcon from '../../assets/images/icon-chevron-down.svg'
 
@@ -162,7 +162,7 @@ const FloorPill = styled.span`
   top: 4px;
   left: 50%;
   z-index: 0;
-  width: 67px;
+  width: 55px;
   height: 38px;
   border-radius: 10px;
   background: #ffffff;
@@ -252,6 +252,7 @@ const floorTabs = [
   { id: '5', label: '5F' },
   { id: '6', label: '6F' },
   { id: '7', label: '7F' },
+  { id: '8', label: '8F' },
 ]
 
 function displayNumber(value) {
@@ -272,21 +273,16 @@ function CampusStatus({ onNavigate }) {
   const [plan, setPlan] = useState(null)
   const [planError, setPlanError] = useState('')
   const [planLoading, setPlanLoading] = useState(false)
-  const [planNonce, setPlanNonce] = useState(0)
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
   const [detailLoading, setDetailLoading] = useState(false)
-  const [actionError, setActionError] = useState('')
-  const [checking, setChecking] = useState(false)
-  const [starting, setStarting] = useState(false)
   const building = buildings.find((item) => item.buildingId === buildingId) ?? null
   const floors = floorTabs.map((item) => ({
     ...item,
-    enabled: building ? Number(item.id) <= (building.maxFloor ?? 0) : item.id === '5' || item.id === '6',
+    enabled: item.id === '5' || item.id === '6',
   }))
   const selectedRoom = (plan?.rooms ?? []).find((room) => String(room.roomId) === String(selectedId) && room.type !== 'RESTROOM')
   const roomId = selectedRoom?.roomId
-  const inProgress = Boolean(detail?.ventilating)
   const waiting = detailLoading
   const air = detail ? roomAirStatus(detail) : { label: waiting ? '강의실 정보를 불러오고 있어요' : '—', color: '#5f6a8f', dot: null }
   const sheetRoom = selectedRoom
@@ -340,7 +336,7 @@ function CampusStatus({ onNavigate }) {
     return () => {
       ignore = true
     }
-  }, [buildingId, floor, planNonce])
+  }, [buildingId, floor])
 
   useEffect(() => {
     if (roomId == null) return undefined
@@ -371,7 +367,7 @@ function CampusStatus({ onNavigate }) {
       <RoomDetailPage
         detail={detail}
         floor={floor}
-        loadError={actionError || detailError}
+        loadError={detailError}
         loading={waiting}
         onBack={() => setDetailOpen(false)}
       />
@@ -379,12 +375,12 @@ function CampusStatus({ onNavigate }) {
   }
 
   function changeFloor(nextFloor) {
+    if (nextFloor !== '5' && nextFloor !== '6') return
     setFloor(nextFloor)
     setPlan(null)
     setSelectedId(null)
     setDetail(null)
     setDetailOpen(false)
-    setActionError('')
     setBuildingMenuOpen(false)
   }
 
@@ -394,64 +390,15 @@ function CampusStatus({ onNavigate }) {
     setDetailOpen(false)
     setSelectedId(null)
     setDetail(null)
-    setActionError('')
     setPlan(null)
     if (Number(floor) > (next.maxFloor ?? 0)) {
-      const nextFloor = [...floorTabs].reverse().find((item) => Number(item.id) <= (next.maxFloor ?? 0))
+      const nextFloor = [...floorTabs].reverse().find((item) => (item.id === '5' || item.id === '6') && Number(item.id) <= (next.maxFloor ?? 0))
       if (nextFloor) setFloor(nextFloor.id)
     }
   }
 
   function selectRoom(roomId) {
     setSelectedId(roomId)
-    setActionError('')
-  }
-
-  async function reloadDetail() {
-    const payload = await getRoomDetail(roomId)
-    setDetail(payload.data ?? null)
-  }
-
-  async function checkVentilation() {
-    const actionId = detail?.pendingAction?.actionId
-    if (checking || starting || waiting) return
-    if (actionId == null) {
-      setActionError('확인할 조치가 없어요.')
-      return
-    }
-
-    setChecking(true)
-    setActionError('')
-    try {
-      await checkAction(actionId)
-      await reloadDetail()
-      setPlanNonce((value) => value + 1)
-    } catch (error) {
-      setActionError(error.message)
-    } finally {
-      setChecking(false)
-    }
-  }
-
-  async function startVentilation() {
-    const actionId = detail?.pendingAction?.actionId
-    if (checking || starting || waiting || inProgress) return
-    if (actionId == null) {
-      setActionError('진행할 조치가 없어요.')
-      return
-    }
-
-    setStarting(true)
-    setActionError('')
-    try {
-      await startAction(actionId)
-      await reloadDetail()
-      setPlanNonce((value) => value + 1)
-    } catch (error) {
-      setActionError(error.message)
-    } finally {
-      setStarting(false)
-    }
   }
 
   return (
@@ -533,12 +480,7 @@ function CampusStatus({ onNavigate }) {
               setBuildingMenuOpen(false)
               setDetailOpen(true)
             }}
-            onCheck={checkVentilation}
-            onStart={startVentilation}
-            checking={checking}
-            starting={starting}
-            inProgress={inProgress}
-            actionError={buildingError || actionError || detailError}
+            actionError={buildingError || detailError}
           />
         ) : null}
         <Footer active="campus" onNavigate={onNavigate} />

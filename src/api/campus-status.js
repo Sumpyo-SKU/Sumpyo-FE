@@ -51,6 +51,26 @@ export function startAction(actionId, { demoLogin } = {}) {
   return APIService.public.post(`/actions/${actionId}/start`, undefined, { headers })
 }
 
+// 환기하기. 강의실의 창문 열기 조치를 진행 중으로 만든다. 이미 환기 중이면 그 조치를 돌려주고, 대기 중인 추천이 있으면 그것을 시작한다. 없는 강의실은 404, 입력이 잘못되면 400이다.
+export function ventilateRoom(roomId, { demoLogin } = {}) {
+  if (roomId === undefined || roomId === null || roomId === '') {
+    throw new Error('강의실 ID가 필요합니다.')
+  }
+
+  const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
+  return APIService.public.post('/actions/ventilate', { roomId }, { headers })
+}
+
+// 조치 완료. 진행 중인 예측·환기 조치를 완료로 바꾸고, 완료 시점 CO₂와 목표 달성 여부를 기록한다. 없는 조치는 404, 진행 중이 아니면 409다.
+export function completeAction(actionId, { demoLogin } = {}) {
+  if (actionId === undefined || actionId === null || actionId === '') {
+    throw new Error('조치 ID가 필요합니다.')
+  }
+
+  const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
+  return APIService.public.post(`/actions/${actionId}/complete`, undefined, { headers })
+}
+
 // 조치 확인. PENDING 조치를 CHECKED로 바꾼다. 이미 CHECKED면 그대로 성공한다.
 export function checkAction(actionId, { demoLogin } = {}) {
   if (actionId === undefined || actionId === null || actionId === '') {

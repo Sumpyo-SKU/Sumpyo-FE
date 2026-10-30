@@ -86,9 +86,13 @@ const Cell = styled.button`
   height: 68px;
   margin: 0;
   padding: 0;
+  overflow: hidden;
   border: 3px solid transparent;
   border-radius: 1px;
-  background: ${({ $tone }) => cellTone[$tone] ?? '#dcdfe8'};
+  background: ${({ $tone, $hatched }) =>
+    $hatched
+      ? 'repeating-linear-gradient(60deg, #dcdfe8 0 8px, #c7c9d0 8px 11px)'
+      : (cellTone[$tone] ?? '#dcdfe8')};
   cursor: ${({ $interactive }) => ($interactive ? 'pointer' : 'default')};
   pointer-events: ${({ $interactive }) => ($interactive ? 'auto' : 'none')};
 
@@ -180,23 +184,25 @@ function FloorPlan({ rooms, selectedId, onSelect }) {
         ))}
         {cells.map((cell) => {
           const isRoom = cell.type !== 'RESTROOM'
+          const selectable = isRoom && cell.co2 != null && cell.status !== 'NO_SENSOR'
           const tone = planTone(cell.status)
-          const selected = isRoom && String(cell.roomId) === String(selectedId)
+          const selected = selectable && String(cell.roomId) === String(selectedId)
           return (
             <Cell
               key={cell.roomId}
-              as={isRoom ? 'button' : 'div'}
-              type={isRoom ? 'button' : undefined}
+              as={selectable ? 'button' : 'div'}
+              type={selectable ? 'button' : undefined}
               $left={cellLeft(cell)}
               $top={rowTop[cell.side] ?? rowTop.BOTTOM}
               $tone={tone}
-              $interactive={isRoom}
-              data-room-id={isRoom ? cell.roomId : undefined}
+              $hatched={!selectable}
+              $interactive={selectable}
+              data-room-id={selectable ? cell.roomId : undefined}
               $selected={selected}
-              aria-pressed={isRoom ? selected : undefined}
+              aria-pressed={selectable ? selected : undefined}
             >
               <RoomNumber $toilet={!isRoom}>{isRoom ? cell.number : '화장실'}</RoomNumber>
-              {isRoom && cell.co2 != null && cell.status !== 'NO_SENSOR' ? (
+              {selectable ? (
                 <RoomPpm $alert={cell.status === 'OVER'}>{Number(cell.co2).toLocaleString('ko-KR')}</RoomPpm>
               ) : null}
             </Cell>

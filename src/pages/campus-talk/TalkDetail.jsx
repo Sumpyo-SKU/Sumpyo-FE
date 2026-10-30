@@ -276,8 +276,24 @@ const EmptyLine = styled.p`
 const ReplyList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   margin: 9px 16px 0;
+`
+
+const ReplyItem = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+`
+
+const ReplyByline = styled.p`
+  margin: 0 1px 0 0;
+  color: #263e50;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
 `
 
 const ReplyCard = styled.section`
@@ -285,6 +301,7 @@ const ReplyCard = styled.section`
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
   min-height: 52px;
   padding: 0 17px 0 16px;
   border: 1px solid rgba(255, 255, 255, 0.65);
@@ -475,14 +492,26 @@ function talkDate(createdAt) {
   return `${date.getFullYear()}.${month}.${day} ${hour}:${minute}`
 }
 
+function personLabel(name, zone) {
+  return [name, zone].filter(Boolean).join(' · ')
+}
+
+function replyByline(reply) {
+  if (reply?.deleted) return ''
+  const author = reply?.author
+  if (author && typeof author === 'object') return personLabel(author.name, author.zone)
+  return personLabel(author, reply?.zone)
+}
+
 function mapTalkDetail(data) {
   const tone = detailStatus[data?.status] ?? { id: 'unread', badge: data?.status || '' }
   const title = [data?.building, data?.target].filter(Boolean).join(' ')
+  const sender = data?.sender
   return {
     talkId: data?.talkId,
     title,
     date: talkDate(data?.createdAt),
-    author: data?.sentByMe ? '나' : (data?.building || ''),
+    author: personLabel(sender?.name, sender?.zone) || (data?.sentByMe ? '나' : (data?.building || '')),
     lines: String(data?.content ?? '').split('\n').filter((line) => line.length > 0),
     status: tone.id,
     badge: tone.badge,
@@ -491,7 +520,7 @@ function mapTalkDetail(data) {
     replies: (data?.replies ?? []).map((reply) => ({
       replyId: reply.replyId,
       text: reply.deleted ? (reply.content || '삭제된 답변입니다') : (reply.content ?? ''),
-      author: reply.deleted ? '' : (reply.author ?? ''),
+      byline: replyByline(reply),
       time: replyTime(reply.createdAt),
       mine: Boolean(reply.mine),
       deleted: Boolean(reply.deleted),
@@ -574,7 +603,7 @@ function TalkDetail({ post, onBack, onReply, onLoaded, onDeleted }) {
       const reply = {
         replyId: data.replyId,
         text: content,
-        author: '나',
+        byline: '나',
         time: replyTime(data.createdAt),
         mine: true,
         talkStatus: data.talkStatus,
@@ -623,7 +652,7 @@ function TalkDetail({ post, onBack, onReply, onLoaded, onDeleted }) {
           badge: tone?.badge ?? current.badge,
           replies: current.replies.map((item) => (
             item.replyId === replyId
-              ? { ...item, text: '삭제된 답변입니다', author: '', deleted: true }
+              ? { ...item, text: '삭제된 답변입니다', byline: '', deleted: true }
               : item
           )),
         }
@@ -689,23 +718,24 @@ function TalkDetail({ post, onBack, onReply, onLoaded, onDeleted }) {
               {detail.replies.length ? (
                 <ReplyList>
                   {detail.replies.map((reply) => (
-                    <ReplyCard key={reply.replyId ?? `${reply.time}-${reply.text}`}>
-                      <ReplyText $deleted={reply.deleted}>
-                        {reply.author ? `${reply.author} · ${reply.text}` : reply.text}
-                      </ReplyText>
-                      <ReplySide>
-                        <ReplyTime>{reply.time}</ReplyTime>
-                        {reply.mine && !reply.deleted ? (
-                          <ReplyDelete
-                            type="button"
-                            disabled={deletingReplyId === reply.replyId}
-                            onClick={() => removeReply(reply.replyId)}
-                          >
-                            삭제
-                          </ReplyDelete>
-                        ) : null}
-                      </ReplySide>
-                    </ReplyCard>
+                    <ReplyItem key={reply.replyId ?? `${reply.time}-${reply.text}`}>
+                      {reply.byline ? <ReplyByline>{reply.byline}</ReplyByline> : null}
+                      <ReplyCard>
+                        <ReplyText $deleted={reply.deleted}>{reply.text}</ReplyText>
+                        <ReplySide>
+                          <ReplyTime>{reply.time}</ReplyTime>
+                          {reply.mine && !reply.deleted ? (
+                            <ReplyDelete
+                              type="button"
+                              disabled={deletingReplyId === reply.replyId}
+                              onClick={() => removeReply(reply.replyId)}
+                            >
+                              삭제
+                            </ReplyDelete>
+                          ) : null}
+                        </ReplySide>
+                      </ReplyCard>
+                    </ReplyItem>
                   ))}
                 </ReplyList>
               ) : (
