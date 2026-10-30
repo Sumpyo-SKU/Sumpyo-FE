@@ -1,5 +1,6 @@
-import { Fragment } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import styled, { css } from 'styled-components'
+import { getMe } from '../../api/auth.js'
 import backIcon from '../../assets/images/icon-settings-back.svg'
 import ellipseBottom from '../../assets/images/bg-edit-ellipse.svg'
 import ellipseTop from '../../assets/images/bg-settings-ellipse.svg'
@@ -12,8 +13,8 @@ import guideIcon from '../../assets/images/icon-setting-alert.svg'
 import chevronIcon from '../../assets/images/icon-setting-chevron.svg'
 import lineIcon from '../../assets/images/icon-settings-line.svg'
 import zoneIcon from '../../assets/images/icon-zone-building.svg'
-import readingCat from '../../assets/images/settings-reading-cat.png'
 import knobIcon from '../../assets/images/icon-toggle-knob.svg'
+import profileCat from '../../assets/images/settings-profile-cat.png'
 
 const noticeRows = [
   { key: 'ventilation', label: '환기 알림', icon: ventIcon, width: '22', height: '22' },
@@ -75,7 +76,56 @@ const BackIcon = styled.img`
 const Content = styled.main`
   position: relative;
   z-index: 1;
-  padding-top: 124px;
+  padding-top: 301px;
+`
+
+const Profile = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+`
+
+const Avatar = styled.div`
+  position: absolute;
+  top: 117px;
+  left: 67px;
+  width: 147px;
+  height: 147px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #d0e3f4;
+`
+
+const AvatarPhoto = styled.img`
+  position: absolute;
+  top: 24px;
+  left: 16px;
+  object-fit: cover;
+`
+
+const ProfileName = styled.p`
+  position: absolute;
+  top: 186px;
+  left: 233px;
+  margin: 0;
+  color: #161a2b;
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 28px;
+  white-space: nowrap;
+`
+
+const ProfileZone = styled.p`
+  position: absolute;
+  top: 227px;
+  left: 233px;
+  margin: 0;
+  color: rgba(22, 26, 43, 0.7);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 22px;
+  white-space: nowrap;
 `
 
 const Section = styled.section`
@@ -204,15 +254,6 @@ function TileIcon({ src, width, height, flip = false }) {
   )
 }
 
-const ReadingCat = styled.img`
-  position: absolute;
-  top: 645px;
-  left: 218px;
-  z-index: 1;
-  object-fit: contain;
-  pointer-events: none;
-`
-
 const SettingsNote = styled.p`
   margin: 0 21px 12px;
   color: #c93a24;
@@ -222,6 +263,24 @@ const SettingsNote = styled.p`
 `
 
 function SettingsPage({ notice, ppm, error, onToggle, onBack, onOpenThreshold, onOpenZones, onOpenQr }) {
+  const [profile, setProfile] = useState({ name: '', zone: '' })
+
+  useEffect(() => {
+    let cancelled = false
+    getMe()
+      .then((payload) => {
+        if (cancelled) return
+        const me = payload.data ?? {}
+        setProfile({ name: me.name ?? '', zone: me.zone ?? '' })
+      })
+      .catch(() => {
+        if (!cancelled) setProfile({ name: '', zone: '' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <PageRoot>
       <Screen>
@@ -233,6 +292,13 @@ function SettingsPage({ notice, ppm, error, onToggle, onBack, onOpenThreshold, o
         </BackButton>
 
         <Content>
+          <Profile>
+            <Avatar>
+              <AvatarPhoto src={profileCat} alt="" width="116" height="146" />
+            </Avatar>
+            {profile.name ? <ProfileName>{profile.name}</ProfileName> : null}
+            {profile.zone ? <ProfileZone>{profile.zone}</ProfileZone> : null}
+          </Profile>
           {error ? <SettingsNote>{error}</SettingsNote> : null}
           <Section>
             <SectionTitle>알림 설정</SectionTitle>
@@ -267,7 +333,7 @@ function SettingsPage({ notice, ppm, error, onToggle, onBack, onOpenThreshold, o
               <Rows>
                 <RowButton type="button" onClick={onOpenQr}>
                   <TileIcon src={qrIcon} width="18" height="18" />
-                  <Label>접수 QR 코드 발급</Label>
+                  <Label>민원 QR 코드 발급</Label>
                   <img src={chevronIcon} alt="" width="20" height="20" />
                 </RowButton>
                 <Line src={lineIcon} alt="" width="358" height="1" />
@@ -288,13 +354,12 @@ function SettingsPage({ notice, ppm, error, onToggle, onBack, onOpenThreshold, o
                   <Tile>
                     <img src={zoneIcon} alt="" width="26" height="28" />
                   </Tile>
-                  <Label>내 담당 구역</Label>
+                  <Label>내 담당 구역/요일</Label>
                   <img src={chevronIcon} alt="" width="20" height="20" />
                 </RowButton>
               </Rows>
             </Card>
           </Section>
-          <ReadingCat src={readingCat} alt="" width="117" height="157" />
         </Content>
       </Screen>
     </PageRoot>

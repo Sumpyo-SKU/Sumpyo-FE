@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import styled from 'styled-components'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import styled, { keyframes } from 'styled-components'
 import Footer from '../../common/Footer/Footer.jsx'
 import ComplaintDetail from './ComplaintDetail.jsx'
 import { getComplaints, getRepeatedComplaints } from '../../api/inbox.js'
@@ -44,6 +44,41 @@ const Screen = styled.div`
   height: max(844px, 100dvh);
   overflow: hidden;
   background: #d7e6fc;
+`
+
+const detailEnter = keyframes`
+  from {
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+`
+
+const detailLeave = keyframes`
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+`
+
+const DetailLayer = styled.div`
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 30;
+  width: min(390px, 100dvw);
+  margin-left: calc(min(390px, 100dvw) / -2);
+  overflow: hidden;
+  background: #f0f8ff;
+  animation: ${({ $leaving }) => ($leaving ? detailLeave : detailEnter)} 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 `
 
 const Ellipse = styled.img`
@@ -128,7 +163,7 @@ const SearchInput = styled.input`
 `
 
 const Summary = styled.section`
-  min-height: 163px;
+  min-height: 103px;
   margin: 23px 16px 0;
   padding: 14px 15px 14px 11px;
   border: 1px solid rgba(255, 255, 255, 0.65);
@@ -182,21 +217,8 @@ const Note = styled.p`
   font-size: 9px;
 `
 
-const Action = styled.button`
-  width: calc(100% - 8px);
-  height: 45px;
-  margin: 16px 4px 0;
-  border: none;
-  border-radius: 15px;
-  background: rgba(86, 166, 240, 0.8);
-  color: #ffffff;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-`
-
 const Tabs = styled.div`
+  position: relative;
   display: flex;
   justify-content: space-between;
   margin: 24px 28px 0;
@@ -214,15 +236,21 @@ const Tab = styled.button`
   font-weight: 500;
   line-height: 25px;
   cursor: pointer;
+`
 
-  &::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    height: 3px;
-    background: ${({ $selected }) => ($selected ? '#56a6f0' : 'transparent')};
+const TabIndicator = styled.span`
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: ${({ $width }) => $width}px;
+  height: 3px;
+  background: #56a6f0;
+  transform: translateX(${({ $left }) => $left}px);
+  transition: ${({ $move }) => ($move ? 'transform 280ms cubic-bezier(0.32, 0.72, 0, 1), width 280ms cubic-bezier(0.32, 0.72, 0, 1)' : 'none')};
+  pointer-events: none;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
   }
 `
 
@@ -346,6 +374,8 @@ function mapComplaint(item) {
     status: tone.id,
     badge: tone.badge,
     place: categories ? `${item.room ?? ''} · ${categories}` : (item.room ?? ''),
+    room: item.room ?? '',
+    categoryLabels: (item.categoryLabels ?? []).filter(Boolean),
     body: item.preview ?? '',
     time: relativeTime(item.createdAt),
     createdAt: item.createdAt,
@@ -357,6 +387,8 @@ function Inbox({ onNavigate }) {
   const [query, setQuery] = useState('')
   const [keyword, setKeyword] = useState('')
   const [detail, setDetail] = useState(null)
+  const [detailLeaving, setDetailLeaving] = useState(false)
+  const detailLeavingRef = useRef(false)
   const [complaints, setComplaints] = useState([])
   const [counts, setCounts] = useState({ all: 0, received: 0, inProgress: 0, done: 0 })
   const [listError, setListError] = useState('')
@@ -368,6 +400,10 @@ function Inbox({ onNavigate }) {
   const loadingRef = useRef(false)
   const requestRef = useRef(0)
   const tabRef = useRef(tab)
+  const tabsRef = useRef(null)
+  const tabButtonRefs = useRef({})
+  const [indicator, setIndicator] = useState(null)
+  const [indicatorMoves, setIndicatorMoves] = useState(false)
   const tabs = [
     { id: 'all', label: `전체 ${counts.all ?? 0}` },
     { id: 'received', label: `접수 ${counts.received ?? 0}` },
@@ -438,21 +474,77 @@ function Inbox({ onNavigate }) {
     loadComplaints(undefined, tab, keyword)
   }, [tab, keyword])
 
-  if (detail) {
-    return (
-      <ComplaintDetail
-        complaint={detail}
-        onBack={() => setDetail(null)}
-        onNavigate={onNavigate}
-        onStatus={(status, checks) => {
-          const labels = { received: '접수', progress: '처리 중', done: '완료' }
-          setComplaints((items) => items.map((item) => (
-            item.id === detail.id ? { ...item, status, badge: labels[status], checks } : item
-          )))
-          setDetail((item) => (item ? { ...item, status, badge: labels[status], checks } : item))
-        }}
-      />
-    )
+  useLayoutEffect(() => {
+    const parent = tabsRef.current
+    const node = tabButtonRefs.current[tab]
+    if (!parent || !node) return undefined
+    function measure() {
+      const current = tabButtonRefs.current[tab]
+      if (!current) return
+      const parentRect = parent.getBoundingClientRect()
+      const rect = current.getBoundingClientRect()
+      const left = rect.left - parentRect.left
+      const width = rect.width
+      setIndicator((previous) => (
+        previous && previous.left === left && previous.width === width ? previous : { left, width }
+      ))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [tab, counts])
+
+  useEffect(() => {
+    if (!indicator || indicatorMoves) return undefined
+    const frame = requestAnimationFrame(() => setIndicatorMoves(true))
+    return () => cancelAnimationFrame(frame)
+  }, [indicator, indicatorMoves])
+
+  useEffect(() => {
+    if (!detail) return undefined
+    const root = document.documentElement
+    const previous = root.style.overflow
+    root.style.overflow = 'hidden'
+    return () => {
+      root.style.overflow = previous
+    }
+  }, [detail?.id])
+
+  useEffect(() => {
+    if (!detail || !detailLeaving) return undefined
+    const timer = setTimeout(() => {
+      if (!detailLeavingRef.current) return
+      detailLeavingRef.current = false
+      setDetailLeaving(false)
+      setDetail(null)
+    }, 420)
+    return () => clearTimeout(timer)
+  }, [detail, detailLeaving])
+
+  function openDetail(item) {
+    detailLeavingRef.current = false
+    setDetailLeaving(false)
+    setDetail(item)
+  }
+
+  function closeDetail() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      detailLeavingRef.current = false
+      setDetailLeaving(false)
+      setDetail(null)
+      return
+    }
+    detailLeavingRef.current = true
+    setDetailLeaving(true)
+  }
+
+  function finishDetailMotion(event) {
+    if (event.target !== event.currentTarget) return
+    if (!detailLeavingRef.current) return
+    detailLeavingRef.current = false
+    setDetailLeaving(false)
+    setDetail(null)
   }
 
   return (
@@ -505,25 +597,25 @@ function Inbox({ onNavigate }) {
               <div key={item.roomId ?? item.room}>
                 <Room>{item.room}</Room>
                 {item.message ? <Note>{item.message}</Note> : null}
-                <Action
-                  type="button"
-                  onClick={() => {
-                    setTab('all')
-                    setQuery(item.room ?? '')
-                  }}
-                >
-                  관련 민원 확인
-                </Action>
               </div>
             ))}
           </Summary>
 
-          <Tabs>
+          <Tabs ref={tabsRef}>
             {tabs.map((item) => (
-              <Tab key={item.id} type="button" $selected={tab === item.id} onClick={() => setTab(item.id)}>
+              <Tab
+                key={item.id}
+                ref={(node) => { tabButtonRefs.current[item.id] = node }}
+                type="button"
+                $selected={tab === item.id}
+                onClick={() => setTab(item.id)}
+              >
                 {item.label}
               </Tab>
             ))}
+            {indicator ? (
+              <TabIndicator $left={indicator.left} $width={indicator.width} $move={indicatorMoves} />
+            ) : null}
           </Tabs>
 
           <List>
@@ -537,7 +629,7 @@ function Inbox({ onNavigate }) {
                 <Time>{item.time}</Time>
                 <Place $done={item.status === 'done'}>{item.place}</Place>
                 <Body>{item.body}</Body>
-                <More as="button" type="button" $link onClick={() => setDetail(item)}>
+                <More as="button" type="button" $link onClick={() => openDetail(item)}>
                   상세 보기
                   <img src={arrowIcon} alt="" width="15" height="15" />
                 </More>
@@ -548,6 +640,22 @@ function Inbox({ onNavigate }) {
 
         <Footer active="inbox" shadow onNavigate={onNavigate} />
       </Screen>
+      {detail ? (
+        <DetailLayer $leaving={detailLeaving} onAnimationEnd={finishDetailMotion}>
+          <ComplaintDetail
+            complaint={detail}
+            onBack={closeDetail}
+            onNavigate={onNavigate}
+            onStatus={(status, checks) => {
+              const labels = { received: '접수', progress: '처리 중', done: '완료' }
+              setComplaints((items) => items.map((item) => (
+                item.id === detail.id ? { ...item, status, badge: labels[status], checks } : item
+              )))
+              setDetail((item) => (item ? { ...item, status, badge: labels[status], checks } : item))
+            }}
+          />
+        </DetailLayer>
+      ) : null}
     </PageRoot>
   )
 }

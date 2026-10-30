@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import styled, { css, keyframes } from 'styled-components'
 import ellipseA from '../../assets/images/onboarding-ellipse-a.svg'
 import ellipseB from '../../assets/images/onboarding-ellipse-b.svg'
@@ -10,6 +10,7 @@ import runImage from '../../assets/images/onboarding-run.png'
 import pinIcon from '../../assets/images/onboarding-pin.svg'
 import checkIcon from '../../assets/images/onboarding-check.svg'
 import { LoginPage, SignupPage } from './Auth.jsx'
+import { getMyZones, mapMyZones } from '../../api/settingspage.js'
 
 const buildings = [
   ['대일관', '문예관', '본관'],
@@ -540,6 +541,8 @@ function LoadingRing({ progress }) {
 function ReadyPage({ label, onDone }) {
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState(0)
+  const onDoneRef = useRef(onDone)
+  onDoneRef.current = onDone
 
   useEffect(() => {
     const started = performance.now()
@@ -551,12 +554,12 @@ function ReadyPage({ label, onDone }) {
       if (next < 2000) frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
-    const doneTimer = setTimeout(onDone, 2000)
+    const doneTimer = setTimeout(() => onDoneRef.current(), 2000)
     return () => {
       cancelAnimationFrame(frame)
       clearTimeout(doneTimer)
     }
-  }, [onDone])
+  }, [])
 
   return (
     <Ready>
@@ -599,6 +602,8 @@ function Onboarding({ onDone, onAuthenticated, initialStep = 'flash' }) {
   const [step, setStep] = useState(initialStep)
   const [building, setBuilding] = useState(null)
   const [selectedFloors, setSelectedFloors] = useState([])
+  const [enteredWithZones, setEnteredWithZones] = useState(false)
+  const [resumeLabel, setResumeLabel] = useState('')
 
   useEffect(() => {
     if (step !== 'flash') return undefined
@@ -640,8 +645,19 @@ function Onboarding({ onDone, onAuthenticated, initialStep = 'flash' }) {
           <LoginPage
             onSignup={() => setStep('signup')}
             onSuccess={(session) => {
-              if (session?.hasZones) onAuthenticated(session)
-              else setStep('role')
+              if (!session?.hasZones) {
+                setEnteredWithZones(false)
+                setStep('role')
+                return
+              }
+              setEnteredWithZones(true)
+              setStep('ready')
+              getMyZones()
+                .then((payload) => {
+                  const first = mapMyZones(payload.data)[0]
+                  if (first) setResumeLabel(zoneLabel(first.building, first.floors))
+                })
+                .catch(() => {})
             }}
           />
         )}
@@ -705,8 +721,11 @@ function Onboarding({ onDone, onAuthenticated, initialStep = 'flash' }) {
         )}
         {step === 'ready' && (
           <ReadyPage
-            label={zoneLabel(building, selectedFloors)}
-            onDone={() => onDone({ building, floors: selectedFloors })}
+            label={enteredWithZones && resumeLabel ? resumeLabel : zoneLabel(building, selectedFloors)}
+            onDone={() => {
+              if (enteredWithZones) onAuthenticated()
+              else onDone({ building, floors: selectedFloors })
+            }}
           />
         )}
       </Screen>

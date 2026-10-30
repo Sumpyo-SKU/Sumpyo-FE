@@ -1,5 +1,4 @@
 import styled from 'styled-components'
-import arrowIcon from '../../assets/images/icon-arrow-forward.svg'
 
 const Card = styled.section`
   position: absolute;
@@ -21,24 +20,6 @@ const RoomName = styled.p`
   font-size: 13px;
   font-weight: 400;
   line-height: 19px;
-`
-
-const DetailLink = styled.button`
-  position: absolute;
-  top: 17px;
-  right: 16px;
-  display: inline-flex;
-  align-items: center;
-  height: 15px;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: rgba(38, 62, 80, 0.6);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 14px;
-  cursor: pointer;
 `
 
 const Reading = styled.p`
@@ -122,62 +103,27 @@ const StatusDot = styled.span`
   background: ${({ $color }) => $color};
 `
 
-const Actions = styled.div`
+const OpenButton = styled.button`
   position: absolute;
   top: 191px;
   right: 16px;
   left: 16px;
-  display: flex;
-  gap: 8px;
-`
-
-const ActionButton = styled.button`
   height: 46px;
   margin: 0;
   border: none;
   border-radius: 12px;
+  background: #56a6f0;
+  color: #ffffff;
   font-size: 14px;
+  font-weight: 700;
   line-height: 21px;
-  pointer-events: none;
-
-  ${({ $primary }) =>
-    $primary
-      ? `
-          flex: 1;
-          background: #56a6f0;
-          color: #ffffff;
-          font-weight: 700;
-          pointer-events: auto;
-          cursor: pointer;
-
-          &:disabled {
-            cursor: default;
-            opacity: 0.7;
-          }
-        `
-      : `
-          width: 122px;
-          background: #f4f5fa;
-          color: #161a2b;
-          font-weight: 600;
-          pointer-events: auto;
-          cursor: pointer;
-
-          &:disabled {
-            cursor: default;
-            opacity: 0.7;
-          }
-        `}
+  cursor: pointer;
 `
 
-function RoomDetailCard({ room, onOpenDetail, onCheck, onStart, checking, starting, inProgress, actionError }) {
+function RoomDetailCard({ room, onOpenDetail, actionError }) {
   return (
     <Card aria-label={`${room.name} 현황`}>
       <RoomName>{room.name}</RoomName>
-      <DetailLink type="button" onClick={onOpenDetail}>
-        상세 보기
-        <img src={arrowIcon} alt="" width="15" height="15" />
-      </DetailLink>
       <Reading>
         <Co2Value>{room.co2Label}</Co2Value>
         <Co2Unit>ppm</Co2Unit>
@@ -196,14 +142,9 @@ function RoomDetailCard({ room, onOpenDetail, onCheck, onStart, checking, starti
         {actionError || !room.status.dot ? null : <StatusDot $color={room.status.dot} />}
         {actionError || room.status.label}
       </Status>
-      <Actions>
-        <ActionButton type="button" disabled={checking || starting} aria-busy={checking} onClick={onCheck}>
-          확인
-        </ActionButton>
-        <ActionButton type="button" $primary disabled={checking || starting || inProgress} aria-busy={starting} onClick={onStart}>
-          {inProgress ? '환기 진행중' : '환기 하기'}
-        </ActionButton>
-      </Actions>
+      <OpenButton type="button" onClick={onOpenDetail}>
+        상세 내용 보러가기
+      </OpenButton>
     </Card>
   )
 }
