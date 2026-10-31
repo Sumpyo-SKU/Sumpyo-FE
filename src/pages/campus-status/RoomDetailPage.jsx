@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import styled, { css } from 'styled-components'
-import { completeAction, roomAirStatus, ventilateRoom } from '../../api/campus-status.js'
-import { completeComplaintStep, getComplaints, recommendComplaint } from '../../api/inbox.js'
+import { completeAction, getVentilationActions, roomAirStatus, startAction, ventilateRoom } from '../../api/campus-status.js'
+import { completeComplaintStep, getComplaint, getComplaints, recommendComplaint } from '../../api/inbox.js'
 import sparkIcon from '../../assets/images/icon-repeat-spark.svg'
 import sparkSmallIcon from '../../assets/images/icon-repeat-spark-2.svg'
 import redoIcon from '../../assets/images/icon-redo.svg'
@@ -10,6 +10,7 @@ import checkSmallIcon from '../../assets/images/icon-check-small.svg'
 import campusEllipse from '../../assets/images/bg-campus-ellipse.svg'
 import backIcon from '../../assets/images/icon-back.svg'
 import ventIcon from '../../assets/images/icon-vent.svg'
+import ventAlertIcon from '../../assets/images/icon-vent-alert.svg'
 import tempIcon from '../../assets/images/icon-detail-temp.svg'
 import humidityIcon from '../../assets/images/icon-detail-humidity.svg'
 import Co2FlowChart from './Co2FlowChart.jsx'
@@ -165,8 +166,8 @@ const VentBanner = styled.div`
   height: 39px;
   padding: 0 12px;
   border-radius: 14px;
-  background: rgba(86, 166, 240, 0.2);
-  color: #2b679e;
+  background: ${({ $alert }) => ($alert ? 'rgba(247, 82, 85, 0.1)' : 'rgba(86, 166, 240, 0.2)')};
+  color: ${({ $alert }) => ($alert ? '#f75255' : '#2b679e')};
   font-size: 13px;
   font-weight: 400;
   line-height: normal;
@@ -408,7 +409,7 @@ const AdviceText = styled.p`
 
 const Effect = styled.p`
   position: absolute;
-  top: 80px;
+  top: ${({ $offset = 0 }) => `${80 + $offset}px`};
   left: 14px;
   display: flex;
   align-items: center;
@@ -429,7 +430,7 @@ const EffectValue = styled.span`
 
 const OtherButton = styled.button`
   position: absolute;
-  top: 129px;
+  top: ${({ $offset = 0 }) => `${129 + $offset}px`};
   left: 14px;
   display: flex;
   align-items: center;
@@ -468,7 +469,7 @@ const RedoImage = styled.img`
 
 const StartButton = styled.button`
   position: absolute;
-  top: 129px;
+  top: ${({ $offset = 0 }) => `${129 + $offset}px`};
   left: 142px;
   width: 202px;
   height: 50px;
@@ -770,16 +771,27 @@ function classTime(item) {
   return `${item.start}–${item.end}`
 }
 
+function adviceSituation(detail) {
+  if (detail?.co2Level === 'CRITICAL' || detail?.co2Status === 'OVER') return 'exceed'
+  if (detail?.co2Status === 'PREDICTED') return 'prediction'
+  return null
+}
+
 function needsAdvice(detail) {
-  const level = detail?.co2Level
-  return level === 'CRITICAL' || level === 'CAUTION'
+  return adviceSituation(detail) != null
 }
 
 function effectText(data) {
-  const before = Number(data?.co2Before)
-  const after = Number(data?.expectedCo2After)
+  const before = Number(data?.effectBefore ?? data?.co2Before)
+  const after = Number(data?.effectAfter ?? data?.expectedCo2After)
   if (!Number.isFinite(before) || !Number.isFinite(after)) return ''
-  return `CO₂ ${before.toLocaleString('ko-KR')} → 약 ${after.toLocaleString('ko-KR')}ppm`
+  const metric = data?.effectMetric
+  const name = metric === 'TEMP' ? '온도' : metric === 'HUMIDITY' ? '습도' : 'CO₂'
+  const unit = data?.effectUnit || (metric === 'TEMP' ? '°C' : metric === 'HUMIDITY' ? '%' : 'ppm')
+  const afterText = metric === 'TEMP' || metric === 'HUMIDITY'
+    ? after.toLocaleString('ko-KR')
+    : `약 ${after.toLocaleString('ko-KR')}`
+  return `${name} ${before.toLocaleString('ko-KR')} → ${afterText}${unit}`
 }
 
 function clock(value) {
@@ -808,14 +820,97 @@ function actionSteps(steps, previous = []) {
   })
 }
 
-function adviceCardHeight(view, stepCount) {
-  if (view !== 'progress') return 192
+function adviceCardHeight(view, stepCount, extra = 0) {
+  if (view !== 'progress') return 192 + extra
   return Math.max(192, 79 + stepCount * 50 + 13)
+}
+
+function adviceFromAction(action) {
+  if (!action) return null
+  const summary = action.summary
+    || [action.title, action.reason].filter(Boolean).join(' · ')
+    || action.message
+    || ''
+  return {
+    actionId: action.actionId,
+    summary,
+    status: action.status,
+    co2Before: action.co2Before ?? null,
+    expectedCo2After: action.expectedCo2After ?? null,
+  }
+}
+
+function adviceFromRecommendation(data, complaintId) {
+  if (!data?.summary) return null
+  return {
+    complaintId: complaintId ?? null,
+    actionId: data.actionId ?? null,
+    summary: data.summary,
+    status: data.status,
+    co2Before: data.co2Before ?? data.effectBefore ?? null,
+    expectedCo2After: data.expectedCo2After ?? data.effectAfter ?? null,
+    effectMetric: data.effectMetric ?? null,
+    effectBefore: data.effectBefore ?? null,
+    effectAfter: data.effectAfter ?? null,
+    effectUnit: data.effectUnit ?? null,
+  }
+}
+
+async function loadExceedRecommendation(roomId) {
+  const list = await getComplaints({ roomId, size: 20 })
+  const items = list.data?.content ?? []
+  for (const item of items) {
+    if (item.status !== 'RECEIVED') continue
+    try {
+      const payload = await recommendComplaint(item.complaintId)
+      const advice = adviceFromRecommendation(payload.data, item.complaintId)
+      if (advice) return { ...advice, canRetry: true }
+    } catch (error) {
+      if (Number(error.code) !== 409) throw error
+    }
+  }
+  for (const item of items) {
+    const payload = await getComplaint(item.complaintId)
+    const advice = adviceFromRecommendation(payload.data?.action, item.complaintId)
+    if (advice) return { ...advice, canRetry: item.status === 'RECEIVED' }
+  }
+  return null
+}
+
+async function requestAnotherRecommendation(roomId, complaintId) {
+  const list = await getComplaints({ roomId, status: 'RECEIVED', size: 20 })
+  const ids = []
+  for (const item of list.data?.content ?? []) {
+    if (item.complaintId != null && !ids.includes(item.complaintId)) ids.push(item.complaintId)
+  }
+  if (complaintId != null) {
+    const index = ids.indexOf(complaintId)
+    if (index >= 0) ids.splice(index, 1)
+    ids.unshift(complaintId)
+  }
+  let lastError = null
+  for (const id of ids) {
+    try {
+      const payload = await recommendComplaint(id, { retry: true })
+      const advice = adviceFromRecommendation(payload.data, id)
+      if (advice) return { ...advice, canRetry: true }
+    } catch (error) {
+      lastError = error
+      if (Number(error.code) !== 409) throw error
+    }
+  }
+  throw lastError || new Error('다른 추천을 불러오지 못했습니다.')
+}
+
+function needsExceedAction(detail) {
+  if (detail?.ventilating || detail?.ventilatingAction) return false
+  if (detail?.co2Level === 'CRITICAL') return true
+  const message = String(detail?.pendingAction?.message || '').replace(/[\s·ㆍ]/g, '')
+  return message.includes('기준초과') && message.includes('환기전')
 }
 
 function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
   const showAdvice = needsAdvice(detail)
-  const [complaintId, setComplaintId] = useState(null)
   const [recommendation, setRecommendation] = useState(null)
   const [recommendError, setRecommendError] = useState('')
   const [recommending, setRecommending] = useState(false)
@@ -826,6 +921,9 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
   const [checkingType, setCheckingType] = useState(null)
   const [stepError, setStepError] = useState('')
   const [startError, setStartError] = useState('')
+  const summaryRef = useRef(null)
+  const [summaryExtra, setSummaryExtra] = useState(0)
+  const situation = adviceSituation(detail)
   const status = detail ? roomAirStatus(detail) : null
   const number = detail?.number
   const placeFloor = detail?.floor ?? floor
@@ -837,29 +935,66 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
     if (!showAdvice || detail?.roomId == null) return undefined
     let cancelled = false
 
-    const load = async () => {
-      setRecommending(true)
-      setRecommendError('')
+    const clearProgress = () => {
       setRecommendation(null)
-      setComplaintId(null)
+      setRecommendError('')
       setPhase('received')
       setSteps([])
       setAction(null)
       setStepError('')
       setStartError('')
+    }
+
+    if (needsExceedAction(detail)) {
+      const loadExceed = async () => {
+        clearProgress()
+        setRecommending(true)
+        try {
+          const advice = await loadExceedRecommendation(detail.roomId)
+          if (cancelled) return
+          if (!advice) {
+            setRecommendError('AI 추천을 불러오지 못했어요.')
+            return
+          }
+          setRecommendation(advice)
+        } catch (error) {
+          if (!cancelled) setRecommendError(error.message || 'AI 추천을 불러오지 못했습니다.')
+        } finally {
+          if (!cancelled) setRecommending(false)
+        }
+      }
+      loadExceed()
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (situation !== 'prediction') {
+      clearProgress()
+      const ventilating = detail.ventilatingAction
+      if (ventilating) setRecommendation({ actionId: ventilating.actionId ?? null, summary: '환기를 진행하고 있어요.' })
+      else setRecommendError('이 강의실의 환기 조치가 아직 없어요.')
+      setRecommending(false)
+      return undefined
+    }
+
+    const load = async () => {
+      clearProgress()
+      setRecommending(true)
       try {
-        const list = await getComplaints({ roomId: detail.roomId, status: 'RECEIVED', size: 1 })
+        const payload = await getVentilationActions()
         if (cancelled) return
-        const id = list.data?.content?.[0]?.complaintId
-        if (id == null) {
-          setRecommendError('접수된 민원이 없어 추천을 불러오지 못했어요.')
+        const roomItems = (payload.data ?? []).filter((item) => item.roomId === detail.roomId && item.source === 'PREDICTION')
+        const preferredId = detail.pendingAction?.actionId ?? detail.ventilatingAction?.actionId
+        const matched = roomItems.find((item) => item.actionId === preferredId) || roomItems[0]
+        const advice = adviceFromAction(matched)
+        if (!advice?.summary) {
+          setRecommendError('이 강의실의 예측 조치가 아직 없어요.')
           return
         }
-        setComplaintId(id)
-        const payload = await recommendComplaint(id)
-        if (!cancelled) setRecommendation(payload.data ?? null)
+        setRecommendation(advice)
       } catch (error) {
-        if (!cancelled) setRecommendError(error.message || '추천을 불러오지 못했습니다.')
+        if (!cancelled) setRecommendError(error.message || '예측 조치를 불러오지 못했습니다.')
       } finally {
         if (!cancelled) setRecommending(false)
       }
@@ -869,20 +1004,47 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
     return () => {
       cancelled = true
     }
-  }, [showAdvice, detail?.roomId])
+  }, [showAdvice, detail, situation])
 
-  async function loadRecommendation(retry) {
-    if (complaintId == null || recommending) return
+  async function loadRecommendation() {
+    if (recommending) return
+    if (needsExceedAction(detail)) {
+      if (recommendation?.complaintId == null || detail?.roomId == null) return
+      setRecommending(true)
+      setRecommendError('')
+      try {
+        const advice = await requestAnotherRecommendation(detail.roomId, recommendation.complaintId)
+        setRecommendation(advice)
+        setPhase('received')
+        setSteps([])
+        setAction(null)
+        setStartError('')
+      } catch (error) {
+        setRecommendError(error.message || '다른 추천을 불러오지 못했습니다.')
+      } finally {
+        setRecommending(false)
+      }
+      return
+    }
+    if (situation !== 'prediction' || detail?.roomId == null) return
     setRecommending(true)
     setRecommendError('')
     try {
-      const payload = await recommendComplaint(complaintId, { retry })
-      setRecommendation(payload.data ?? null)
+      const payload = await getVentilationActions()
+      const roomItems = (payload.data ?? []).filter((item) => item.roomId === detail.roomId && item.source === 'PREDICTION')
+      if (!roomItems.length) {
+        setRecommendation(null)
+        setRecommendError('이 강의실의 예측 조치가 아직 없어요.')
+        return
+      }
+      const index = roomItems.findIndex((item) => item.actionId === recommendation?.actionId)
+      const next = roomItems[(index + 1) % roomItems.length]
+      setRecommendation(adviceFromAction(next))
       setPhase('received')
       setSteps([])
       setAction(null)
     } catch (error) {
-      setRecommendError(error.message || '추천을 불러오지 못했습니다.')
+      setRecommendError(error.message || '예측 조치를 불러오지 못했습니다.')
     } finally {
       setRecommending(false)
     }
@@ -894,7 +1056,10 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
     setStarting(true)
     setStartError('')
     try {
-      const payload = await ventilateRoom(roomId)
+      const useRecommendation = recommendation?.actionId != null && (situation === 'prediction' || needsExceedAction(detail))
+      const payload = useRecommendation
+        ? await startAction(recommendation.actionId)
+        : await ventilateRoom(roomId)
       const data = payload.data ?? {}
       const nextSteps = actionSteps(data.steps ?? [])
       setAction({ ...recommendation, ...data, summary: data.summary || recommendation?.summary })
@@ -947,10 +1112,29 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
   const allChecked = steps.length > 0 && steps.every((step) => step.checked)
   const view = phase === 'received' ? 'received' : allChecked || (phase === 'done' && steps.length === 0) ? 'done' : 'progress'
   const adviceTitle = view === 'done' ? '조치 완료' : view === 'progress' ? '조치 진행 중' : 'AI 추천 조치'
-  const bannerText = view === 'done' ? '조치 완료' : view === 'progress' ? '조치 진행 중' : detail?.ventilating ? '환기 진행중' : ''
-  const cardHeight = adviceCardHeight(view, steps.length)
+  const needVentilation = detail?.co2Level === 'CRITICAL' && !detail?.ventilating
+  const bannerText = view === 'done'
+    ? '조치 완료'
+    : view === 'progress'
+      ? '조치 진행 중'
+      : detail?.ventilating
+        ? '환기 진행중'
+        : needVentilation
+          ? '환기 필요'
+          : ''
+  const cardHeight = adviceCardHeight(view, steps.length, view === 'received' ? summaryExtra : 0)
   const scheduleTop = showAdvice ? 720 + cardHeight + 22 : 722
   const screenHeight = showAdvice ? scheduleTop + 168 : 870
+
+  useLayoutEffect(() => {
+    const node = summaryRef.current
+    if (!node || view !== 'received') {
+      setSummaryExtra(0)
+      return
+    }
+    const extra = Math.max(0, Math.ceil(node.getBoundingClientRect().height - 23))
+    setSummaryExtra((current) => (current === extra ? current : extra))
+  }, [view, recommendation?.summary, recommendError, recommending, startError])
 
   return (
     <PageRoot>
@@ -971,8 +1155,8 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
           </AirReading>
           <AirStatus $color={statusColor}>{statusText}</AirStatus>
           {bannerText ? (
-            <VentBanner>
-              <img src={ventIcon} alt="" width="18" height="18" />
+            <VentBanner $alert={bannerText === '환기 필요'}>
+              <img src={bannerText === '환기 필요' ? ventAlertIcon : ventIcon} alt="" width="18" height="18" />
               {bannerText}
             </VentBanner>
           ) : null}
@@ -1029,25 +1213,30 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
             <AdviceTitle>{adviceTitle}</AdviceTitle>
             {view === 'received' ? (
               <>
-                {recommending && !recommendation ? <AdviceText>추천을 불러오고 있어요.</AdviceText> : null}
-                {!recommendation && recommendError ? <AdviceText>{recommendError}</AdviceText> : null}
-                {recommendation ? <AdviceText>{recommendation.summary}</AdviceText> : null}
+                {recommending && !recommendation ? <AdviceText ref={summaryRef}>추천을 불러오고 있어요.</AdviceText> : null}
+                {!recommendation && recommendError ? <AdviceText ref={summaryRef}>{recommendError}</AdviceText> : null}
+                {recommendation ? <AdviceText ref={summaryRef}>{recommendation.summary}</AdviceText> : null}
                 {recommendation && (startError || recommendError) ? (
-                  <Effect $error>{startError || recommendError}</Effect>
+                  <Effect $error $offset={summaryExtra}>{startError || recommendError}</Effect>
                 ) : null}
                 {recommendation && !startError && !recommendError && effectText(recommendation) ? (
-                  <Effect>
+                  <Effect $offset={summaryExtra}>
                     예상 효과
                     <EffectValue>{effectText(recommendation)}</EffectValue>
                   </Effect>
                 ) : null}
-                <OtherButton type="button" disabled={recommending || complaintId == null} onClick={() => loadRecommendation(true)}>
+                <OtherButton
+                  type="button"
+                  $offset={summaryExtra}
+                  disabled={recommending || !recommendation || (needsExceedAction(detail) ? recommendation.complaintId == null : situation !== 'prediction')}
+                  onClick={() => loadRecommendation()}
+                >
                   <RedoIcon>
                     <RedoImage src={redoIcon} alt="" width="16.5" height="16.5" />
                   </RedoIcon>
                   {recommending ? '찾는 중' : '다른 방법'}
                 </OtherButton>
-                <StartButton type="button" disabled={starting || detail?.roomId == null} onClick={begin}>
+                <StartButton type="button" $offset={summaryExtra} disabled={starting || recommending || detail?.roomId == null || ((situation === 'prediction' || needsExceedAction(detail)) && recommendation?.actionId == null)} onClick={begin}>
                   추천대로 처리 시작
                 </StartButton>
               </>

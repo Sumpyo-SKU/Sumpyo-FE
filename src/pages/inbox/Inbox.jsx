@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import styled, { keyframes } from 'styled-components'
+import styled from 'styled-components'
 import Footer from '../../common/Footer/Footer.jsx'
 import ComplaintDetail from './ComplaintDetail.jsx'
 import { getComplaints, getRepeatedComplaints } from '../../api/inbox.js'
@@ -46,24 +46,6 @@ const Screen = styled.div`
   background: #d7e6fc;
 `
 
-const detailEnter = keyframes`
-  from {
-    transform: translate3d(100%, 0, 0);
-  }
-  to {
-    transform: translate3d(0, 0, 0);
-  }
-`
-
-const detailLeave = keyframes`
-  from {
-    transform: translate3d(0, 0, 0);
-  }
-  to {
-    transform: translate3d(100%, 0, 0);
-  }
-`
-
 const DetailLayer = styled.div`
   position: fixed;
   top: 0;
@@ -74,11 +56,6 @@ const DetailLayer = styled.div`
   margin-left: calc(min(390px, 100dvw) / -2);
   overflow: hidden;
   background: #f0f8ff;
-  animation: ${({ $leaving }) => ($leaving ? detailLeave : detailEnter)} 340ms cubic-bezier(0.32, 0.72, 0, 1) both;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
 `
 
 const Ellipse = styled.img`
@@ -387,8 +364,6 @@ function Inbox({ onNavigate }) {
   const [query, setQuery] = useState('')
   const [keyword, setKeyword] = useState('')
   const [detail, setDetail] = useState(null)
-  const [detailLeaving, setDetailLeaving] = useState(false)
-  const detailLeavingRef = useRef(false)
   const [complaints, setComplaints] = useState([])
   const [counts, setCounts] = useState({ all: 0, received: 0, inProgress: 0, done: 0 })
   const [listError, setListError] = useState('')
@@ -511,39 +486,11 @@ function Inbox({ onNavigate }) {
     }
   }, [detail?.id])
 
-  useEffect(() => {
-    if (!detail || !detailLeaving) return undefined
-    const timer = setTimeout(() => {
-      if (!detailLeavingRef.current) return
-      detailLeavingRef.current = false
-      setDetailLeaving(false)
-      setDetail(null)
-    }, 420)
-    return () => clearTimeout(timer)
-  }, [detail, detailLeaving])
-
   function openDetail(item) {
-    detailLeavingRef.current = false
-    setDetailLeaving(false)
     setDetail(item)
   }
 
   function closeDetail() {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      detailLeavingRef.current = false
-      setDetailLeaving(false)
-      setDetail(null)
-      return
-    }
-    detailLeavingRef.current = true
-    setDetailLeaving(true)
-  }
-
-  function finishDetailMotion(event) {
-    if (event.target !== event.currentTarget) return
-    if (!detailLeavingRef.current) return
-    detailLeavingRef.current = false
-    setDetailLeaving(false)
     setDetail(null)
   }
 
@@ -641,7 +588,7 @@ function Inbox({ onNavigate }) {
         <Footer active="inbox" shadow onNavigate={onNavigate} />
       </Screen>
       {detail ? (
-        <DetailLayer $leaving={detailLeaving} onAnimationEnd={finishDetailMotion}>
+        <DetailLayer>
           <ComplaintDetail
             complaint={detail}
             onBack={closeDetail}
