@@ -48,12 +48,13 @@ const dropletMotion = keyframes`
 `
 
 const FooterBar = styled.footer`
-  position: absolute;
+  position: ${({ $pinned }) => ($pinned ? 'fixed' : 'absolute')};
   bottom: 0;
-  left: 0;
-  z-index: 2;
-  width: 390px;
+  left: ${({ $pinned }) => ($pinned ? '50%' : '0')};
+  z-index: ${({ $pinned }) => ($pinned ? 4 : 2)};
+  width: ${({ $pinned }) => ($pinned ? 'min(390px, 100dvw)' : '390px')};
   height: 95px;
+  margin-left: ${({ $pinned }) => ($pinned ? 'calc(min(390px, 100dvw) / -2)' : '0')};
   pointer-events: none;
 `
 
@@ -187,7 +188,7 @@ const items = [
   { id: 'talk', label: '캠퍼스톡', buttonLeft: '270px', labelLeft: '315.5px', iconLeft: '304px', idle: talkIcon, active: talkActiveIcon, width: '21.5', height: '21.5', topOn: '23px', topOff: '34px' },
 ]
 
-function Footer({ active = 'home', onNavigate, shadow = false }) {
+function Footer({ active = 'home', onNavigate, shadow = false, pinned = false }) {
   const [stretch, setStretch] = useState(1)
   const [animate, setAnimate] = useState(false)
   const [sway, setSway] = useState(false)
@@ -226,7 +227,7 @@ function Footer({ active = 'home', onNavigate, shadow = false }) {
   }, [active])
 
   return (
-    <FooterBar>
+    <FooterBar $pinned={pinned}>
       {shadow && <FooterShadow />}
       <FooterFill />
       <FooterSurface />

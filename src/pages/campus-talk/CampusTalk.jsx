@@ -595,7 +595,7 @@ function CampusTalk({ onNavigate }) {
           <img src={sendIcon} alt="" width="18.709" height="15.5" />
           {talkDummy.send}
         </SendButton>
-        <Footer active="talk" shadow onNavigate={onNavigate} />
+        <Footer active="talk" shadow pinned onNavigate={onNavigate} />
       </Screen>
     </PageRoot>
   )

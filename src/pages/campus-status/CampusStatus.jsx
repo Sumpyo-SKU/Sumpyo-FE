@@ -499,7 +499,7 @@ function CampusStatus({ onNavigate }) {
             actionError={buildingError || detailError}
           />
         ) : null}
-        <Footer active="campus" onNavigate={onNavigate} />
+        <Footer active="campus" pinned onNavigate={onNavigate} />
       </Screen>
     </PageRoot>
   )
