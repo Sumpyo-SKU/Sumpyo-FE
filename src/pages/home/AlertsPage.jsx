@@ -94,6 +94,11 @@ const List = styled.main`
   z-index: 1;
   overflow: auto;
   padding: 0 16px 24px;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 `
 
 const SectionLabel = styled.h2`

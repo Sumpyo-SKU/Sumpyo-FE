@@ -22,8 +22,17 @@ function planWidth(rooms) {
   return maxLeft + cellWidth + sideInset
 }
 
-function planTone(status) {
+function co2IsNormal(co2, threshold) {
+  const value = Number(co2)
+  const limit = Number(threshold)
+  if (!Number.isFinite(value) || !Number.isFinite(limit) || limit <= 0) return false
+  return value < limit * 0.9
+}
+
+function planTone(room, threshold) {
+  const status = room?.status
   if (status === 'OVER') return 'exceed'
+  if (status === 'NORMAL' || room?.co2Level === 'NORMAL' || co2IsNormal(room?.co2, threshold)) return 'normal'
   if (status === 'PREDICTED' || status === 'CAUTION') return 'warn'
   return 'normal'
 }
@@ -127,7 +136,7 @@ const RoomPpm = styled.span`
   text-align: center;
 `
 
-function FloorPlan({ rooms, selectedId, onSelect }) {
+function FloorPlan({ rooms, selectedId, onSelect, threshold = 1000 }) {
   const cells = rooms ?? []
   const scrollerRef = useRef(null)
   const dragRef = useRef(null)
@@ -185,7 +194,7 @@ function FloorPlan({ rooms, selectedId, onSelect }) {
         {cells.map((cell) => {
           const isRoom = cell.type !== 'RESTROOM'
           const selectable = isRoom && cell.co2 != null && cell.status !== 'NO_SENSOR'
-          const tone = planTone(cell.status)
+          const tone = planTone(cell, threshold)
           const selected = selectable && String(cell.roomId) === String(selectedId)
           return (
             <Cell

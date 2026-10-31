@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import styled from 'styled-components'
+import styled, { keyframes } from 'styled-components'
 import Header from '../../common/Header/Header.jsx'
 import Footer from '../../common/Footer/Footer.jsx'
 import Card from '../../components/Card/Card.jsx'
@@ -55,6 +55,84 @@ const HomeScreen = styled.div`
   min-height: max(844px, 100dvh);
   overflow: hidden;
   background: #d7e6fc;
+`
+
+function dropletFrames(x, y, closing) {
+  const wideX = x + 14
+  const wideY = y + 14
+  const tallX = x - 14
+  const tallY = y - 10
+  if (closing) {
+    return keyframes`
+      0% {
+        opacity: 1;
+        clip-path: ellipse(2400px 2400px at ${x}px ${y}px);
+      }
+      28% {
+        clip-path: ellipse(250px 250px at ${x}px ${y}px);
+      }
+      42% {
+        clip-path: ellipse(108px 152px at ${tallX}px ${tallY}px);
+      }
+      54% {
+        clip-path: ellipse(158px 96px at ${wideX}px ${wideY}px);
+      }
+      66% {
+        opacity: 1;
+        clip-path: ellipse(120px 120px at ${x}px ${y}px);
+      }
+      100% {
+        opacity: 0;
+        clip-path: ellipse(18px 18px at ${x}px ${y}px);
+      }
+    `
+  }
+  return keyframes`
+    0% {
+      opacity: 0.75;
+      clip-path: ellipse(18px 18px at ${x}px ${y}px);
+    }
+    34% {
+      opacity: 1;
+      clip-path: ellipse(120px 120px at ${x}px ${y}px);
+    }
+    46% {
+      clip-path: ellipse(158px 96px at ${wideX}px ${wideY}px);
+    }
+    58% {
+      clip-path: ellipse(108px 152px at ${tallX}px ${tallY}px);
+    }
+    72% {
+      clip-path: ellipse(250px 250px at ${x}px ${y}px);
+    }
+    100% {
+      opacity: 1;
+      clip-path: ellipse(2400px 2400px at ${x}px ${y}px);
+    }
+  `
+}
+
+const bellDropOpen = dropletFrames(316, 78, false)
+const bellDropClose = dropletFrames(316, 78, true)
+const gearDropOpen = dropletFrames(358, 80, false)
+const gearDropClose = dropletFrames(358, 80, true)
+
+const DropletLayer = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  background: #f0f8ff;
+  animation: ${({ $closing, $enter, $origin }) => {
+    if ($enter === false && !$closing) return 'none'
+    const open = $origin === 'settings' ? gearDropOpen : bellDropOpen
+    const close = $origin === 'settings' ? gearDropClose : bellDropClose
+    return $closing ? close : open
+  }} 0.9s cubic-bezier(0.22, 0.4, 0.2, 1) forwards;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 `
 
 const HomeBackground = styled.div`
@@ -537,7 +615,10 @@ function Home({ onNavigate, zones, onZonesChange }) {
   const [loadError, setLoadError] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
+  const [alertsClosing, setAlertsClosing] = useState(false)
   const [settingsView, setSettingsView] = useState(null)
+  const [settingsClosing, setSettingsClosing] = useState(false)
+  const [settingsEnter, setSettingsEnter] = useState(true)
   // 알림 종류는 설정 화면 토글과 연결된다. 끈 종류는 알림 페이지에 나오지 않는다.
   // ventilation: 환기 알림, complaint: 새 민원 알림, sensor: 센서 오류 알림
   // 나중에 API로 바꿀 때도 이 구분으로 걸러 보여 준다.
@@ -684,57 +765,6 @@ function Home({ onNavigate, zones, onZonesChange }) {
     return <QrPage roomId={selectedRoom?.roomId} onBack={() => setSettingsView('settings')} />
   }
 
-  if (settingsView === 'settings') {
-    return (
-      <SettingsPage
-        notice={notice}
-        ppm={threshold.ppm}
-        error={settingsError}
-        onToggle={async (key) => {
-          const field = {
-            ventilation: 'notifyVentilation',
-            complaint: 'notifyComplaint',
-            sensor: 'notifySensorError',
-          }[key]
-          const nextValue = !notice[key]
-          setNotice((current) => ({ ...current, [key]: nextValue }))
-          try {
-            const payload = await saveMySettings({ [field]: nextValue })
-            const settings = mapMySettings(payload.data)
-            setNotice(settings.notice)
-            setThreshold(settings.threshold)
-            setSettingsError('')
-          } catch (error) {
-            setNotice((current) => ({ ...current, [key]: !nextValue }))
-            setSettingsError(error.message || '설정을 저장하지 못했습니다.')
-          }
-        }}
-        onBack={() => setSettingsView(null)}
-        onOpenThreshold={() => setSettingsView('threshold')}
-        onOpenZones={() => setSettingsView('zones')}
-        onOpenQr={() => setSettingsView('qr')}
-      />
-    )
-  }
-
-  if (alertsOpen) {
-    return (
-      <AlertsPage
-        notice={notice}
-        onUnreadCount={(count) => {
-          if (typeof count === 'number') {
-            setUnreadCount(count)
-            return
-          }
-          getUnreadNotificationCount()
-            .then((payload) => setUnreadCount(payload.data?.unreadCount ?? 0))
-            .catch(() => {})
-        }}
-        onBack={() => setAlertsOpen(false)}
-      />
-    )
-  }
-
   const comfort = comfortBand(latest?.comfortScore)
 
   return (
@@ -762,10 +792,13 @@ function Home({ onNavigate, zones, onZonesChange }) {
           onRoomClick={() => setPickerOpen((open) => !open)}
           onBellClick={() => {
             setPickerOpen(false)
+            setAlertsClosing(false)
             setAlertsOpen(true)
           }}
           onSettingsClick={() => {
             setPickerOpen(false)
+            setSettingsClosing(false)
+            setSettingsEnter(true)
             setSettingsView('settings')
           }}
         />
@@ -885,6 +918,99 @@ function Home({ onNavigate, zones, onZonesChange }) {
             }}
             onClose={() => setPickerOpen(false)}
           />
+        ) : null}
+
+        {alertsOpen ? (
+          <DropletLayer
+            $closing={alertsClosing}
+            onAnimationEnd={(event) => {
+              if (event.target !== event.currentTarget || !alertsClosing) return
+              setAlertsClosing(false)
+              setAlertsOpen(false)
+            }}
+          >
+            <AlertsPage
+              notice={notice}
+              onUnreadCount={(count) => {
+                if (typeof count === 'number') {
+                  setUnreadCount(count)
+                  return
+                }
+                getUnreadNotificationCount()
+                  .then((payload) => setUnreadCount(payload.data?.unreadCount ?? 0))
+                  .catch(() => {})
+              }}
+              onBack={() => {
+                if (alertsClosing) return
+                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                  setAlertsOpen(false)
+                  return
+                }
+                setAlertsClosing(true)
+              }}
+            />
+          </DropletLayer>
+        ) : null}
+
+        {settingsView === 'settings' ? (
+          <DropletLayer
+            $origin="settings"
+            $enter={settingsEnter}
+            $closing={settingsClosing}
+            onAnimationEnd={(event) => {
+              if (event.target !== event.currentTarget || !settingsClosing) return
+              setSettingsClosing(false)
+              setSettingsEnter(true)
+              setSettingsView(null)
+            }}
+          >
+            <SettingsPage
+              notice={notice}
+              ppm={threshold.ppm}
+              error={settingsError}
+              onToggle={async (key) => {
+                const field = {
+                  ventilation: 'notifyVentilation',
+                  complaint: 'notifyComplaint',
+                  sensor: 'notifySensorError',
+                }[key]
+                const nextValue = !notice[key]
+                setNotice((current) => ({ ...current, [key]: nextValue }))
+                try {
+                  const payload = await saveMySettings({ [field]: nextValue })
+                  const settings = mapMySettings(payload.data)
+                  setNotice(settings.notice)
+                  setThreshold(settings.threshold)
+                  setSettingsError('')
+                } catch (error) {
+                  setNotice((current) => ({ ...current, [key]: !nextValue }))
+                  setSettingsError(error.message || '설정을 저장하지 못했습니다.')
+                }
+              }}
+              onBack={() => {
+                if (settingsClosing) return
+                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                  setSettingsClosing(false)
+                  setSettingsEnter(true)
+                  setSettingsView(null)
+                  return
+                }
+                setSettingsClosing(true)
+              }}
+              onOpenThreshold={() => {
+                setSettingsEnter(false)
+                setSettingsView('threshold')
+              }}
+              onOpenZones={() => {
+                setSettingsEnter(false)
+                setSettingsView('zones')
+              }}
+              onOpenQr={() => {
+                setSettingsEnter(false)
+                setSettingsView('qr')
+              }}
+            />
+          </DropletLayer>
         ) : null}
       </HomeScreen>
     </HomeRoot>
