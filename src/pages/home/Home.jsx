@@ -429,6 +429,22 @@ function clockLabel(value) {
   return time ? time.slice(0, 5) : ''
 }
 
+function localStamp(date) {
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+function todayAtNine() {
+  const date = new Date()
+  date.setHours(9, 0, 0, 0)
+  return date
+}
+
+function sinceNine(points) {
+  const start = todayAtNine().getTime()
+  return (points ?? []).filter((point) => new Date(point?.at).getTime() >= start)
+}
+
 function messageTone(action) {
   if (action.recommend === 'CLOSE' || action.title?.includes('닫')) return 'calm'
   if (action.title?.includes('수업 전')) return 'warn'
@@ -471,8 +487,8 @@ function actionCard(action) {
 }
 
 function forecastViewData({ room, forecast, readings, predictions, actions }) {
-  const measured = readings?.points ?? []
-  const predicted = predictions?.points ?? []
+  const measured = sinceNine(readings?.points)
+  const predicted = sinceNine(predictions?.points)
   const lastMeasured = measured[measured.length - 1]
   const lastPredicted = predicted[predicted.length - 1]
   const buildingName = room?.label?.split('·')[0]?.trim() || '담당 구역'
@@ -487,14 +503,17 @@ function forecastViewData({ room, forecast, readings, predictions, actions }) {
       co2Tail: forecast?.co2AtEnd == null ? '' : ' 예상',
     },
     chart: {
-      yLabels: ['1,500', '1,000', '600'],
+      yLabels: ['1,500', '1,000', '200'],
       times: [
-        clockLabel(measured[0]?.at) || forecast?.start || '—',
+        '09:00',
         clockLabel(lastMeasured?.at) || '지금',
         clockLabel(lastPredicted?.at) || forecast?.end || '—',
       ],
+      axisFrom: localStamp(todayAtNine()),
       measuredLabel: lastMeasured ? displayNumber(lastMeasured.co2) : '—',
       predictedLabel: forecast?.co2AtEnd != null ? displayNumber(forecast.co2AtEnd) : displayNumber(lastPredicted?.co2),
+      measuredPoints: measured,
+      predictedPoints: predicted,
       legendMeasured: '실측',
       legendPredicted: '예측',
       legendGuide: `${displayNumber(threshold)} ppm · 환기 권장선`,
@@ -595,7 +614,7 @@ function Home({ onNavigate, zones, onZonesChange }) {
       const [latestResult, forecastResult, readingsResult, predictionsResult, actionsResult] = await Promise.allSettled([
         getRoomLatestReading(roomId),
         getRoomNextClassForecast(roomId),
-        getRoomMeasuredReadings(roomId),
+        getRoomMeasuredReadings(roomId, { from: localStamp(todayAtNine()) }),
         getRoomPredictions(roomId),
         getActions({ zone: 'mine', buildingId: selectedRoom.buildingId }),
       ])

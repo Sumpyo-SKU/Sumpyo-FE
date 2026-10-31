@@ -3,8 +3,6 @@ import styled, { css } from 'styled-components'
 import gridLine1500 from '../../assets/images/chart-grid-top.svg'
 import gridLine600 from '../../assets/images/chart-grid-mid.svg'
 import gridLine1000 from '../../assets/images/chart-grid-bottom.svg'
-import measuredLine from '../../assets/images/chart-measured.svg'
-import predictedLine from '../../assets/images/chart-predicted.png'
 import predictedSample from '../../assets/images/chart-predicted-sample.png'
 
 const messageColors = {
@@ -31,7 +29,7 @@ const badgeStyles = {
 const yLabelTops = {
   '1,500': '2px',
   '1,000': '56px',
-  600: '110px',
+  200: '110px',
 }
 
 const Forecast = styled.section`
@@ -104,16 +102,12 @@ const PlotLine = styled.img`
   left: 28px;
 `
 
-const MeasuredLine = styled.img`
+const PlotSvg = styled.svg`
   position: absolute;
-  top: 97.75px;
-  left: 38.75px;
-`
-
-const PredictedLine = styled.img`
-  position: absolute;
-  top: 41.75px;
-  left: 167.75px;
+  inset: 0;
+  width: 326px;
+  height: 150px;
+  overflow: visible;
 `
 
 const PlotLabel = styled.span`
@@ -158,17 +152,15 @@ const XLabel = styled(PlotLabel)`
 `
 
 const MeasuredValue = styled(PlotLabel)`
-  top: 80px;
-  left: 155px;
   color: #264050;
   font-weight: 600;
+  transform: translate(-50%, -100%);
 `
 
 const PredictedValue = styled(PlotLabel)`
-  top: 28px;
-  right: 2px;
   color: #56a6f0;
   font-weight: 600;
+  transform: translate(-50%, -100%);
 `
 
 const Legend = styled.div`
@@ -382,6 +374,36 @@ const Dot = styled.button`
   cursor: pointer;
 `
 
+function co2Y(value) {
+  const co2 = Number(value)
+  if (!Number.isFinite(co2)) return 120
+  const y = co2 >= 1000
+    ? 65 - ((co2 - 1000) / 500) * 55
+    : 120 - ((co2 - 200) / 800) * 55
+  return Math.min(146, Math.max(4, y))
+}
+
+function usablePoints(points) {
+  return (points ?? []).filter((point) => {
+    const co2 = Number(point?.co2)
+    const time = new Date(point?.at).getTime()
+    return Number.isFinite(co2) && Number.isFinite(time)
+  })
+}
+
+function plotOnClock(points, start, span) {
+  return points.map((point) => ({
+    x: 28 + ((new Date(point.at).getTime() - start) / span) * 290,
+    y: co2Y(point.co2),
+  }))
+}
+
+function linePath(points) {
+  return points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(' ')
+}
+
 function ForecastView({ data }) {
   const scrollerRef = useRef(null)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -406,6 +428,30 @@ function ForecastView({ data }) {
     scroller.scrollTo({ left: card.offsetLeft - 16, behavior: 'smooth' })
   }
 
+  const measuredSource = usablePoints(data.chart.measuredPoints)
+  const predictedSource = usablePoints(data.chart.predictedPoints)
+  const lastMeasuredAt = measuredSource.length
+    ? new Date(measuredSource[measuredSource.length - 1].at).getTime()
+    : null
+  const future = lastMeasuredAt == null
+    ? predictedSource
+    : predictedSource.filter((point) => new Date(point.at).getTime() > lastMeasuredAt)
+  const timeline = [...measuredSource, ...future]
+  const clock = timeline.map((point) => new Date(point.at).getTime())
+  const axisFrom = new Date(data.chart.axisFrom).getTime()
+  const latest = clock.length ? Math.max(...clock) : axisFrom
+  const clockStart = Number.isFinite(axisFrom) ? axisFrom : (clock.length ? Math.min(...clock) : 0)
+  const clockSpan = (Number.isFinite(latest) ? Math.max(latest, clockStart) : clockStart) - clockStart || 1
+  const measured = plotOnClock(measuredSource, clockStart, clockSpan)
+  const predicted = plotOnClock(future, clockStart, clockSpan)
+  const dashed = measured.length && predicted.length
+    ? [measured[measured.length - 1], ...predicted]
+    : predicted
+  const measuredLabelAt = measured[measured.length - 1]
+  const predictedLabelAt = predicted[predicted.length - 1]
+  const nowX = measuredLabelAt?.x ?? 169
+  const shadeWidth = Math.max(0, 318 - nowX)
+
   return (
     <Forecast aria-label="수업 중 예보">
       <Summary>
@@ -418,20 +464,42 @@ function ForecastView({ data }) {
         </Co2Text>
 
         <Plot aria-hidden="true">
-          <Shade />
+          <Shade style={{ left: nowX, width: shadeWidth }} />
           <PlotLine src={gridLine1500} alt="" width="290" height="1" $top="10px" />
           <PlotLine src={gridLine1000} alt="" width="290" height="1" $top="65px" />
           <PlotLine src={gridLine600} alt="" width="290" height="1" $top="120px" />
-          <MeasuredLine src={measuredLine} alt="" width="131.5" height="19.5003" />
-          <PredictedLine src={predictedLine} alt="" width="151.5" height="58.5" />
+          <PlotSvg viewBox="0 0 326 150" aria-hidden="true">
+            {measured.length > 1 ? (
+              <path d={linePath(measured)} fill="none" stroke="#6D96BC" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            ) : null}
+            {dashed.length > 1 ? (
+              <path d={linePath(dashed)} fill="none" stroke="#56A6F0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1.5 4" />
+            ) : null}
+          </PlotSvg>
           {data.chart.yLabels.map((label) => (
             <YLabel key={label} $top={yLabelTops[label]}>{label}</YLabel>
           ))}
           <XLabel $place="start">{data.chart.times[0]}</XLabel>
-          <XLabel $place="mid">{data.chart.times[1]}</XLabel>
+          <XLabel
+            $place="mid"
+            style={{
+              left: nowX,
+              transform: nowX > 260 ? 'translateX(-100%)' : 'translateX(-50%)',
+            }}
+          >
+            {data.chart.times[1]}
+          </XLabel>
           <XLabel $place="end">{data.chart.times[2]}</XLabel>
-          <MeasuredValue>{data.chart.measuredLabel}</MeasuredValue>
-          <PredictedValue>{data.chart.predictedLabel}</PredictedValue>
+          {measuredLabelAt && data.chart.measuredLabel !== '—' ? (
+            <MeasuredValue style={{ left: measuredLabelAt.x, top: measuredLabelAt.y - 4 }}>
+              {data.chart.measuredLabel}
+            </MeasuredValue>
+          ) : null}
+          {predictedLabelAt && data.chart.predictedLabel !== '—' ? (
+            <PredictedValue style={{ left: predictedLabelAt.x, top: predictedLabelAt.y - 4 }}>
+              {data.chart.predictedLabel}
+            </PredictedValue>
+          ) : null}
         </Plot>
 
         <Legend>

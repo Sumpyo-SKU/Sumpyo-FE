@@ -9,7 +9,7 @@ const forecastDummy = {
     co2Tail: ' 예상',
   },
   chart: {
-    yLabels: ['1,500', '1,000', '600'],
+    yLabels: ['1,500', '1,000', '200'],
     times: ['13:30', '14:10', '14:45'],
     measuredLabel: '640',
     predictedLabel: '1,280',
