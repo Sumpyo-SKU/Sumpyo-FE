@@ -11,7 +11,9 @@ export function roomAirStatus(detail) {
         ? { color: '#f75255', dot: '#f75255' }
         : { color: '#5a6072', dot: '#5a6072' }
   const overLabel = overBy > 0 ? `기준보다 ${overBy.toLocaleString('ko-KR')} 높음` : ''
-  const label = detail?.pendingAction?.message || (level === 'NORMAL' ? '정상' : overLabel || level || '—')
+  const label = level === 'CRITICAL'
+    ? ['심각', overLabel].filter(Boolean).join(' · ')
+    : detail?.pendingAction?.message || (level === 'NORMAL' ? '정상' : overLabel || level || '—')
   return { ...tone, label }
 }
 
@@ -49,6 +51,23 @@ export function startAction(actionId, { demoLogin } = {}) {
 
   const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
   return APIService.public.post(`/actions/${actionId}/start`, undefined, { headers })
+}
+
+// 기준을 넘은 강의실의 대기 조치. 접수 민원 추천은 쓰지 않는다.
+export function getWaitingActions({ demoLogin } = {}) {
+  const search = new URLSearchParams()
+  search.set('status', 'PENDING,CHECKED')
+  const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
+  return APIService.public.get(`/actions?${search}`, { headers })
+}
+
+// 예측 상태의 환기 추천. 예측으로 생긴 대기·진행 중 조치만 가져온다.
+export function getVentilationActions({ demoLogin } = {}) {
+  const search = new URLSearchParams()
+  search.set('source', 'PREDICTION')
+  search.set('status', 'PENDING,CHECKED,IN_PROGRESS')
+  const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
+  return APIService.public.get(`/actions?${search}`, { headers })
 }
 
 // 환기하기. 강의실의 창문 열기 조치를 진행 중으로 만든다. 이미 환기 중이면 그 조치를 돌려주고, 대기 중인 추천이 있으면 그것을 시작한다. 없는 강의실은 404, 입력이 잘못되면 400이다.

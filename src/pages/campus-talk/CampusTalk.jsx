@@ -62,6 +62,11 @@ const Main = styled.main`
   flex-direction: column;
   overflow: auto;
   padding: 45px 0 0;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
   > * {
     flex-shrink: 0;
