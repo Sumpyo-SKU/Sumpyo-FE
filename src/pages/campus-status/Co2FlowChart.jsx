@@ -192,23 +192,7 @@ async function loadChart(roomId, now) {
   }
 }
 
-function previewChart508(chart, roomNumber) {
-  if (String(roomNumber) !== '508' || !chart?.measuredPoints?.length) return chart
-  const lastIndex = chart.measuredPoints.length - 1
-  const measuredPoints = chart.measuredPoints.map((point, index) => (
-    index === lastIndex ? { ...point, co2: 950 } : point
-  ))
-  const dashed = chart.dashed.map((point, index) => (index === 0 ? { ...point, co2: 950 } : point))
-  const forecast = chart.series.slice(chart.measuredPoints.length)
-  return {
-    ...chart,
-    measuredPoints,
-    dashed,
-    series: [...measuredPoints, ...forecast],
-  }
-}
-
-function Co2FlowChart({ roomId, roomNumber }) {
+function Co2FlowChart({ roomId }) {
   const [chart, setChart] = useState(null)
 
   useEffect(() => {
@@ -218,7 +202,7 @@ function Co2FlowChart({ roomId, roomNumber }) {
     const load = () => {
       loadChart(roomId, Date.now())
         .then((next) => {
-          if (!cancelled) setChart(previewChart508(next, roomNumber))
+          if (!cancelled) setChart(next)
         })
         .catch(() => {})
     }
@@ -229,7 +213,7 @@ function Co2FlowChart({ roomId, roomNumber }) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [roomId, roomNumber])
+  }, [roomId])
 
   const now = chart?.now ?? Date.now()
   const windowStart = chart?.windowStart ?? atHour(now, 9)

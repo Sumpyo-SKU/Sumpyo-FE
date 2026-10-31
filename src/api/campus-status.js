@@ -3,7 +3,7 @@ import APIService from './api.js'
 export function roomAirStatus(detail) {
   const level = detail?.co2Level
   const overBy = Number(detail?.co2OverBy)
-  const predicted = detail?.co2Status === 'PREDICTED'
+  const predicted = detail?.co2Status === 'PREDICTED' && level !== 'NORMAL'
   const tone = predicted
     ? { color: '#ff9d00', dot: '#ffbd54' }
     : level === 'NORMAL'
@@ -46,6 +46,16 @@ export function getRoomDetail(roomId, { demoLogin } = {}) {
   return APIService.public.get(`/rooms/${roomId}`, { headers })
 }
 
+// 다른 방법. 대기 중인 조치를 이전과 다른 추천으로 바꾼다. 본문 없음. 진행 중이거나 끝난 조치는 409다.
+export function recommendAnotherAction(actionId, { demoLogin } = {}) {
+  if (actionId === undefined || actionId === null || actionId === '') {
+    throw new Error('조치 ID가 필요합니다.')
+  }
+
+  const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
+  return APIService.public.post(`/actions/${actionId}/recommendation`, undefined, { headers })
+}
+
 // 환기 시작. PENDING·CHECKED 조치를 진행 중으로 바꾸고, 시작 시점 CO₂와 처리자를 기록한다.
 export function startAction(actionId, { demoLogin } = {}) {
   if (actionId === undefined || actionId === null || actionId === '') {
@@ -68,6 +78,14 @@ export function getWaitingActions({ demoLogin } = {}) {
 export function getVentilationActions({ demoLogin } = {}) {
   const search = new URLSearchParams()
   search.set('source', 'PREDICTION')
+  search.set('status', 'PENDING,CHECKED,IN_PROGRESS')
+  const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
+  return APIService.public.get(`/actions?${search}`, { headers })
+}
+
+// 대기·진행 중인 조치 전체. 예측 목록에 강의실 조치가 없을 때 조치 ID로 다시 찾는다.
+export function getOpenActions({ demoLogin } = {}) {
+  const search = new URLSearchParams()
   search.set('status', 'PENDING,CHECKED,IN_PROGRESS')
   const headers = demoLogin ? { 'X-Demo-Login': demoLogin } : undefined
   return APIService.public.get(`/actions?${search}`, { headers })

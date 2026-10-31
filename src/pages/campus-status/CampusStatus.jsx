@@ -5,6 +5,7 @@ import FloorPlan from './FloorPlan.jsx'
 import RoomDetailCard from './RoomDetailCard.jsx'
 import RoomDetailPage from './RoomDetailPage.jsx'
 import { getBuildings, getFloorPlan, getRoomDetail, roomAirStatus } from '../../api/campus-status.js'
+import { getMySettings, mapMySettings } from '../../api/settingspage.js'
 import campusEllipse from '../../assets/images/bg-campus-ellipse.svg'
 import chevronIcon from '../../assets/images/icon-chevron-down.svg'
 
@@ -262,35 +263,6 @@ function displayNumber(value) {
   return Number.isInteger(number) ? number.toLocaleString('ko-KR') : String(number)
 }
 
-function isRoom508(room) {
-  return String(room?.number) === '508'
-}
-
-function previewRoom508(detail) {
-  if (!isRoom508(detail)) return detail
-  return {
-    ...detail,
-    co2: 950,
-    co2Status: 'PREDICTED',
-    ventilateInMinutes: 5,
-    co2Level: detail.co2Level === 'CRITICAL' ? 'CAUTION' : detail.co2Level,
-    pendingAction: {
-      ...(detail.pendingAction ?? {}),
-      message: '약 5분 뒤 기준 초과 예상',
-    },
-  }
-}
-
-function previewPlan508(plan) {
-  if (!plan?.rooms) return plan
-  return {
-    ...plan,
-    rooms: plan.rooms.map((room) => (
-      isRoom508(room) ? { ...room, co2: 950, status: 'PREDICTED' } : room
-    )),
-  }
-}
-
 function CampusStatus({ onNavigate }) {
   const [floor, setFloor] = useState('6')
   const [selectedId, setSelectedId] = useState(null)
@@ -305,6 +277,7 @@ function CampusStatus({ onNavigate }) {
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
   const [detailLoading, setDetailLoading] = useState(false)
+  const [thresholdPpm, setThresholdPpm] = useState(1000)
   const building = buildings.find((item) => item.buildingId === buildingId) ?? null
   const floors = floorTabs.map((item) => ({
     ...item,
@@ -323,6 +296,20 @@ function CampusStatus({ onNavigate }) {
         status: air,
       }
     : null
+
+  useEffect(() => {
+    let ignore = false
+    getMySettings()
+      .then((payload) => {
+        if (ignore) return
+        const ppm = Number(mapMySettings(payload.data).threshold.ppm)
+        if (Number.isFinite(ppm) && ppm > 0) setThresholdPpm(ppm)
+      })
+      .catch(() => {})
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   useEffect(() => {
     let ignore = false
@@ -351,7 +338,7 @@ function CampusStatus({ onNavigate }) {
     setPlanError('')
     getFloorPlan(buildingId, floor)
       .then((payload) => {
-        if (!ignore) setPlan(previewPlan508(payload.data ?? null))
+        if (!ignore) setPlan(payload.data ?? null)
       })
       .catch((error) => {
         if (!ignore) {
@@ -375,7 +362,7 @@ function CampusStatus({ onNavigate }) {
     setDetailError('')
     getRoomDetail(roomId)
       .then((payload) => {
-        if (!ignore) setDetail(previewRoom508(payload.data ?? null))
+        if (!ignore) setDetail(payload.data ?? null)
       })
       .catch((error) => {
         if (!ignore) {
@@ -496,7 +483,7 @@ function CampusStatus({ onNavigate }) {
           {planError ? <PlanNote>{planError}</PlanNote> : null}
           {planLoading && !plan && !planError ? <PlanNote $muted>평면도를 불러오고 있어요</PlanNote> : null}
           {!planError && plan?.rooms?.length ? (
-            <FloorPlan rooms={plan.rooms} selectedId={selectedId} onSelect={selectRoom} />
+            <FloorPlan rooms={plan.rooms} selectedId={selectedId} threshold={thresholdPpm} onSelect={selectRoom} />
           ) : (
             <EmptyPlan />
           )}
