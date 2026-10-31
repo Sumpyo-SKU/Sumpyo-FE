@@ -41,6 +41,16 @@ function App() {
   const [zoneError, setZoneError] = useState('')
 
   useEffect(() => {
+    const color = complaintCode !== null
+      ? '#f0f8ff'
+      : zoneState === 'ready'
+        ? (page === 'campus' ? '#f0f8ff' : '#d7e6fc')
+        : '#ebf3ff'
+    document.documentElement.style.backgroundColor = color
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color)
+  }, [complaintCode, zoneState, page])
+
+  useEffect(() => {
     if (!readAccessToken()) return undefined
     let cancelled = false
 

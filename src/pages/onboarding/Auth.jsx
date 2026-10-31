@@ -51,7 +51,7 @@ const Field = styled.input`
   background: #ffffff;
   color: #161a2b;
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
   letter-spacing: -0.408px;
   outline: none;
 
