@@ -585,7 +585,7 @@ function Inbox({ onNavigate }) {
           </List>
         </Main>
 
-        <Footer active="inbox" shadow onNavigate={onNavigate} />
+        <Footer active="inbox" shadow pinned onNavigate={onNavigate} />
       </Screen>
       {detail ? (
         <DetailLayer>

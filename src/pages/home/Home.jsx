@@ -905,7 +905,7 @@ function Home({ onNavigate, zones, onZonesChange }) {
           )}
         </main>
 
-        <Footer active="home" onNavigate={onNavigate} />
+        {!alertsOpen && settingsView !== 'settings' ? <Footer active="home" pinned onNavigate={onNavigate} /> : null}
 
         {pickerOpen ? (
           <RoomPicker
