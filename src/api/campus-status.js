@@ -3,13 +3,16 @@ import APIService from './api.js'
 export function roomAirStatus(detail) {
   const level = detail?.co2Level
   const overBy = Number(detail?.co2OverBy)
-  const tone = level === 'NORMAL'
-    ? { color: '#74a842', dot: '#9edb62' }
-    : level === 'CAUTION'
-      ? { color: '#ff9d00', dot: '#ffbd54' }
-      : overBy > 0
-        ? { color: '#f75255', dot: '#f75255' }
-        : { color: '#5a6072', dot: '#5a6072' }
+  const predicted = detail?.co2Status === 'PREDICTED'
+  const tone = predicted
+    ? { color: '#ff9d00', dot: '#ffbd54' }
+    : level === 'NORMAL'
+      ? { color: '#74a842', dot: '#9edb62' }
+      : level === 'CAUTION'
+        ? { color: '#ff9d00', dot: '#ffbd54' }
+        : overBy > 0
+          ? { color: '#f75255', dot: '#f75255' }
+          : { color: '#5a6072', dot: '#5a6072' }
   const overLabel = overBy > 0 ? `기준보다 ${overBy.toLocaleString('ko-KR')} 높음` : ''
   const label = level === 'CRITICAL'
     ? ['심각', overLabel].filter(Boolean).join(' · ')

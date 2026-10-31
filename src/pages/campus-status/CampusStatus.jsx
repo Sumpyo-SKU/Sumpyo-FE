@@ -262,6 +262,35 @@ function displayNumber(value) {
   return Number.isInteger(number) ? number.toLocaleString('ko-KR') : String(number)
 }
 
+function isRoom508(room) {
+  return String(room?.number) === '508'
+}
+
+function previewRoom508(detail) {
+  if (!isRoom508(detail)) return detail
+  return {
+    ...detail,
+    co2: 950,
+    co2Status: 'PREDICTED',
+    ventilateInMinutes: 5,
+    co2Level: detail.co2Level === 'CRITICAL' ? 'CAUTION' : detail.co2Level,
+    pendingAction: {
+      ...(detail.pendingAction ?? {}),
+      message: '약 5분 뒤 기준 초과 예상',
+    },
+  }
+}
+
+function previewPlan508(plan) {
+  if (!plan?.rooms) return plan
+  return {
+    ...plan,
+    rooms: plan.rooms.map((room) => (
+      isRoom508(room) ? { ...room, co2: 950, status: 'PREDICTED' } : room
+    )),
+  }
+}
+
 function CampusStatus({ onNavigate }) {
   const [floor, setFloor] = useState('6')
   const [selectedId, setSelectedId] = useState(null)
@@ -322,7 +351,7 @@ function CampusStatus({ onNavigate }) {
     setPlanError('')
     getFloorPlan(buildingId, floor)
       .then((payload) => {
-        if (!ignore) setPlan(payload.data ?? null)
+        if (!ignore) setPlan(previewPlan508(payload.data ?? null))
       })
       .catch((error) => {
         if (!ignore) {
@@ -346,7 +375,7 @@ function CampusStatus({ onNavigate }) {
     setDetailError('')
     getRoomDetail(roomId)
       .then((payload) => {
-        if (!ignore) setDetail(payload.data ?? null)
+        if (!ignore) setDetail(previewRoom508(payload.data ?? null))
       })
       .catch((error) => {
         if (!ignore) {

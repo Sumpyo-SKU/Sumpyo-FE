@@ -24,7 +24,7 @@ function planWidth(rooms) {
 
 function planTone(status) {
   if (status === 'OVER') return 'exceed'
-  if (status === 'CAUTION') return 'warn'
+  if (status === 'PREDICTED' || status === 'CAUTION') return 'warn'
   return 'normal'
 }
 

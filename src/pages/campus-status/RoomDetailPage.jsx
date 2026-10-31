@@ -11,6 +11,7 @@ import campusEllipse from '../../assets/images/bg-campus-ellipse.svg'
 import backIcon from '../../assets/images/icon-back.svg'
 import ventIcon from '../../assets/images/icon-vent.svg'
 import ventAlertIcon from '../../assets/images/icon-vent-alert.svg'
+import ventPredictIcon from '../../assets/images/icon-vent-predict.svg'
 import tempIcon from '../../assets/images/icon-detail-temp.svg'
 import humidityIcon from '../../assets/images/icon-detail-humidity.svg'
 import Co2FlowChart from './Co2FlowChart.jsx'
@@ -150,10 +151,16 @@ const AirStatus = styled.p`
   left: 29px;
   margin: 0;
   color: ${({ $color }) => $color};
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 18px;
 `
+
+const bannerToneStyle = {
+  alert: { background: 'rgba(247, 82, 85, 0.1)', color: '#f75255' },
+  predict: { background: 'rgba(255, 157, 0, 0.08)', color: '#ff9d00' },
+  progress: { background: 'rgba(86, 166, 240, 0.2)', color: '#2b679e' },
+}
 
 const VentBanner = styled.div`
   position: absolute;
@@ -166,8 +173,8 @@ const VentBanner = styled.div`
   height: 39px;
   padding: 0 12px;
   border-radius: 14px;
-  background: ${({ $alert }) => ($alert ? 'rgba(247, 82, 85, 0.1)' : 'rgba(86, 166, 240, 0.2)')};
-  color: ${({ $alert }) => ($alert ? '#f75255' : '#2b679e')};
+  background: ${({ $tone }) => bannerToneStyle[$tone]?.background ?? bannerToneStyle.progress.background};
+  color: ${({ $tone }) => bannerToneStyle[$tone]?.color ?? bannerToneStyle.progress.color};
   font-size: 13px;
   font-weight: 400;
   line-height: normal;
@@ -725,7 +732,7 @@ const ClassTime = styled.span`
 function comfortGaugeColor(score) {
   const value = Number(score)
   if (!Number.isFinite(value) || value >= 70) return '#56A6F0'
-  if (value >= 40) return '#FFAA6E'
+  if (value >= 40) return '#FFBD54'
   return '#FF7A6E'
 }
 
@@ -782,9 +789,12 @@ function needsAdvice(detail) {
 }
 
 function effectText(data) {
-  const before = Number(data?.effectBefore ?? data?.co2Before)
-  const after = Number(data?.effectAfter ?? data?.expectedCo2After)
-  if (!Number.isFinite(before) || !Number.isFinite(after)) return ''
+  const beforeValue = data?.effectBefore ?? data?.co2Before
+  const afterValue = data?.effectAfter ?? data?.expectedCo2After
+  const before = Number(beforeValue)
+  const after = Number(afterValue)
+  if (beforeValue == null || afterValue == null || !Number.isFinite(before) || !Number.isFinite(after)) return ''
+  if (before === 0 && after === 0) return ''
   const metric = data?.effectMetric
   const name = metric === 'TEMP' ? '온도' : metric === 'HUMIDITY' ? '습도' : 'CO₂'
   const unit = data?.effectUnit || (metric === 'TEMP' ? '°C' : metric === 'HUMIDITY' ? '%' : 'ppm')
@@ -837,6 +847,18 @@ function adviceFromAction(action) {
     status: action.status,
     co2Before: action.co2Before ?? null,
     expectedCo2After: action.expectedCo2After ?? null,
+  }
+}
+
+function room508Advice(detail, advice) {
+  if (String(detail?.number) !== '508') return advice
+  const summary = String(advice?.summary || '').replace(/\d+분 뒤/g, '5분 뒤')
+  return {
+    actionId: advice?.actionId ?? detail?.pendingAction?.actionId ?? null,
+    summary: summary.includes('5분 뒤') ? summary : '창문 열어주세요 · 5분 뒤 기준 초과 예정',
+    status: advice?.status ?? 'PENDING',
+    co2Before: null,
+    expectedCo2After: null,
   }
 }
 
@@ -987,7 +1009,7 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
         const roomItems = (payload.data ?? []).filter((item) => item.roomId === detail.roomId && item.source === 'PREDICTION')
         const preferredId = detail.pendingAction?.actionId ?? detail.ventilatingAction?.actionId
         const matched = roomItems.find((item) => item.actionId === preferredId) || roomItems[0]
-        const advice = adviceFromAction(matched)
+        const advice = room508Advice(detail, adviceFromAction(matched))
         if (!advice?.summary) {
           setRecommendError('이 강의실의 예측 조치가 아직 없어요.')
           return
@@ -1039,7 +1061,7 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
       }
       const index = roomItems.findIndex((item) => item.actionId === recommendation?.actionId)
       const next = roomItems[(index + 1) % roomItems.length]
-      setRecommendation(adviceFromAction(next))
+      setRecommendation(room508Advice(detail, adviceFromAction(next)))
       setPhase('received')
       setSteps([])
       setAction(null)
@@ -1113,6 +1135,10 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
   const view = phase === 'received' ? 'received' : allChecked || (phase === 'done' && steps.length === 0) ? 'done' : 'progress'
   const adviceTitle = view === 'done' ? '조치 완료' : view === 'progress' ? '조치 진행 중' : 'AI 추천 조치'
   const needVentilation = detail?.co2Level === 'CRITICAL' && !detail?.ventilating
+  const ventilateIn = Number(detail?.ventilateInMinutes)
+  const predictBanner = detail?.co2Status === 'PREDICTED' && !detail?.ventilating && Number.isFinite(ventilateIn)
+    ? `${ventilateIn}분 뒤 환기 필요`
+    : ''
   const bannerText = view === 'done'
     ? '조치 완료'
     : view === 'progress'
@@ -1121,7 +1147,9 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
         ? '환기 진행중'
         : needVentilation
           ? '환기 필요'
-          : ''
+          : predictBanner
+  const bannerTone = bannerText === '환기 필요' ? 'alert' : bannerText.endsWith('뒤 환기 필요') ? 'predict' : 'progress'
+  const bannerIcon = bannerTone === 'alert' ? ventAlertIcon : bannerTone === 'predict' ? ventPredictIcon : ventIcon
   const cardHeight = adviceCardHeight(view, steps.length, view === 'received' ? summaryExtra : 0)
   const scheduleTop = showAdvice ? 720 + cardHeight + 22 : 722
   const screenHeight = showAdvice ? scheduleTop + 168 : 870
@@ -1155,8 +1183,8 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
           </AirReading>
           <AirStatus $color={statusColor}>{statusText}</AirStatus>
           {bannerText ? (
-            <VentBanner $alert={bannerText === '환기 필요'}>
-              <img src={bannerText === '환기 필요' ? ventAlertIcon : ventIcon} alt="" width="18" height="18" />
+            <VentBanner $tone={bannerTone}>
+              <img src={bannerIcon} alt="" width="18" height="18" />
               {bannerText}
             </VentBanner>
           ) : null}
@@ -1194,7 +1222,7 @@ function RoomDetailPage({ detail, floor, loadError, loading, onBack }) {
         <ChartCard aria-label="오늘 CO₂ 흐름">
           <ChartTitle>오늘 CO₂ 흐름</ChartTitle>
           <ChartPlot>
-            <Co2FlowChart roomId={detail?.roomId} />
+            <Co2FlowChart roomId={detail?.roomId} roomNumber={detail?.number} />
           </ChartPlot>
           <MeasuredKey />
           <LegendText $left="35px">실측</LegendText>
