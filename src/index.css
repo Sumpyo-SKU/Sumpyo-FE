@@ -12,6 +12,10 @@ body {
   margin: 0;
 }
 
+html {
+  background-color: #ebf3ff;
+}
+
 body {
   background-color: #f3f4f6;
   color: #111111;
